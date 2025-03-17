@@ -1,29 +1,29 @@
-name: CI-Coverity-Basic 
-on:
-  push:
-    branches: [ main, master, develop, stage, release ]
-  pull_request:
-    branches: [ main, master, develop, stage, release ]
-  workflow_dispatch: 
+# name: CI-Coverity-Basic 
+# on:
+#   push:
+#     branches: [ main, master, develop, stage, release ]
+#   pull_request:
+#     branches: [ main, master, develop, stage, release ]
+#   workflow_dispatch: 
   
-jobs:
-  build:
-    runs-on: [ self-hosted ]
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v3
-      - name: Coverity Scan
-        uses: blackduck-inc/black-duck-security-scan@main
-        with:
-          polaris_server_url: ${{ vars.POLARIS_SERVER_URL }}
-          polaris_access_token: ${{ secrets.POLARIS_ACCESS_TOKEN }}
-          polaris_assessment_types: "SCA"
-          polaris_application_name: "tb_test_gjbd"
+# jobs:
+#   build:
+#     runs-on: [ self-hosted ]
+#     steps:
+#       - name: Checkout Source
+#         uses: actions/checkout@v3
+#       - name: Coverity Scan
+#         uses: blackduck-inc/black-duck-security-scan@main
+#         with:
+#           polaris_server_url: ${{ vars.POLARIS_SERVER_URL }}
+#           polaris_access_token: ${{ secrets.POLARIS_ACCESS_TOKEN }}
+#           polaris_assessment_types: "SCA"
+#           polaris_application_name: "tb_test_gjbd"
 
-          # ### SCANNING: Required fields
-          # coverity_url: ${{ vars.COVERITY_URL }}
-          # coverity_user: ${{ secrets.COVERITY_USER }}
-          # coverity_passphrase: ${{ secrets.COVERITY_PASSPHRASE }}
-          # include_diagnostics: true
-          # # bridgecli_install_directory: /Users/gouravj/Desktop/work/development/Synopsys-bridge/bridge
-          # coverity_project_name: 'manual_project_name_gj'
+#           # ### SCANNING: Required fields
+#           # coverity_url: ${{ vars.COVERITY_URL }}
+#           # coverity_user: ${{ secrets.COVERITY_USER }}
+#           # coverity_passphrase: ${{ secrets.COVERITY_PASSPHRASE }}
+#           # include_diagnostics: true
+#           # # bridgecli_install_directory: /Users/gouravj/Desktop/work/development/Synopsys-bridge/bridge
+#           # coverity_project_name: 'manual_project_name_gj'
