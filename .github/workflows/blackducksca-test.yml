@@ -47,7 +47,7 @@ jobs:
           ### SARIF report generation and upload to GitHub Adavanced Security: Uncomment below to enable
           #blackducksca_reports_sarif_create: true # Create Black Duck SARIF report and upload it as artifact
           #blackducksca_reports_sarif_file_path: "/Users/madhusud/Sarif_Reports/BD_Security_Scan_Sarif_Report.json"
-          blackduck_upload_sarif_report: false  # Upload Black Duck SARIF report in GitHub Advanced Security tab
+          # blackduck_upload_sarif_report: false  # Upload Black Duck SARIF report in GitHub Advanced Security tab
           #blackducksca_reports_sarif_severities: 'Critical'
           #blackducksca_reports_sarif_groupSCAIssues: true
           #github_token: ${{ secrets.GITHUB_TOKEN }} # Required when blackduck_upload_sarif_report is set as true
@@ -70,7 +70,6 @@ jobs:
           #blackduck_policy_badges_create: true
           #blackduck_policy_badges_maxCount: 5
           include_diagnostics: true
-
           mark_build_status: 'success'
 
       - name: cmdLine
