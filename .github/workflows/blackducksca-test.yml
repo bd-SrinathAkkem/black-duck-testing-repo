@@ -1,60 +1,78 @@
-name: Black Duck SCA Test
-
-# Controls when the workflow will run
+name: BD Actions Blackduck Simplification Test
 on:
   push:
     branches: [ main, master, develop, stage, release ]
   pull_request:
     branches: [ main, master, develop, stage, release ]
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+  workflow_dispatch:  
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
-    #  runs-on: [ ubuntu-latest ]
-    runs-on: [ self-hosted ]
-    # Use ubuntu-latest to run workflow on github hosted runner
-    # runs-on: [ ubuntu-latest ]
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    runs-on: self-hosted
+    #runs-on: [ windows-sh ]
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout Source
         uses: actions/checkout@v3
-
-      - name:   Black Duck SCA Scan
-        # if: ${{ github.event_name != 'pull_request' }}
-        # Use the action defined in this repository
+      - name: Black Duck Full Scan
+        #uses: blackduck-inc/black-duck-security-scan@v2.0.0
         uses: blackduck-inc/black-duck-security-scan@main
+        ### Use below configuration to set specific detect environment variables
+        env:
+          DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
+          #DETECT_EXCLUDED_DIRECTORIES: /Users/madhusud/PI_3_2023/Local_Anlaysis_Testing_INTDELIVER-169/Github_Runners/actions-runner/_work/Node_Goat_E2E/Node_Goat_E2E/config, /Users/madhusud/PI_3_2023/Local_Anlaysis_Testing_INTDELIVER-169/Github_Runners/actions-runner/_work/Node_Goat_E2E/Node_Goat_E2E/app
+          #DETECT_BLACKDUCK_RAPID_COMPARE_MODE: BOM_COMPARE
         with:
-          blackducksca_url: ${{ vars.BLACKDUCK_URL }}
-          blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
-          # blackducksca_scan_full: true
-          blackduck_scan_failure_severities: 'BLOCKER,CRITICAL'
-          # blackducksca_waitForScan: false
-          blackducksca_prComment_enabled: true
-          # blackducksca_fixpr_enabled: true
-          # blackduck_fixpr_filter_severities: 'HIGH,CRITICAL'
-          # blackducksca_policy_badges_create: true
-          # blackduck_install_directory: 'test/path'
-          # blackduck_search_depth: 2
-          # blackduck_config_path: 'test/path'
-          # blackduck_args: '--version'
-          # blackducksca_reports_sarif_create: true
-          # blackduck_reports_sarif_file_path: 'test/path'
-          # blackduck_reports_sarif_severities: 'HIGH,CRITICAL'
-          # blackduck_reports_sarif_groupSCAIssues: true
-          # bridgecli_download_url: 'https://artifactory.internal.synopsys.com/artifactory/clops-local/clops.sig.synopsys.com/bridge/binaries/bridge-cli-bundle/2.9.12/bridge-cli-bundle-2.9.12-macosx.zip'
-          # bridgecli_install_directory: '/Users/gouravj/bridge-cli-bundle'
-          github_token: ${{ secrets.MY_GITHUB_TOKEN }}
-          # network_airgap: true
-          # include_diagnostics: true
-          mark_build_status: 'success'
+          ### SCANNING: Required fields
+          blackducksca_url: ${{ secrets.BLACKDUCK_URL }}
+          blackducksca_token: ${{ secrets.BLACKDUCK_API_TOKEN }}
+          #blackduck_scan_full: false
+          #synopsys_bridge_download_url: https://artifactory.internal.synopsys.com/artifactory/clops-local/clops.sig.synopsys.com/synopsys-bridge/2.8.54/synopsys-bridge-2.8.54-macos_arm.zip
+          #synopsys_bridge_download_version: 2.3.0
+          ### SCANNING: Optional fields
+          blackducksca_scan_failure_severities: 'BLOCKER,CRITICAL'
+
+          #bridgecli_download_url: "https://artifactory.tools.duckutil.net/artifactory/clops-local/integrations/bridge/binaries/bridge-cli-bundle/3.3.7/bridge-cli-bundle-3.3.7-macos_arm.zip"
           
+          ### FIX PULL REQUEST CREATION: Uncomment below to enable
+          blackducksca_fixpr_enabled: true
+          blackducksca_fixpr_maxCount : 5
+          blackducksca_fixpr_filter_severities: 'Critical, High'
+          #blackduck_fixpr_filter_severities: 'Critical'
+          blackducksca_fixpr_useUpgradeGuidance: 'SHORT_TERM,LONG_TERM'
+          #blackduck_fixpr_useUpgradeGuidance: 'SHORT_TERM'
+          github_token: ${{ secrets.GIT_PAT_TOKEN }} # Required when Fix PRs is enabled
+          
+          ### PULL REQUEST COMMENTS: Uncomment below to enable
+          blackducksca_prComment_enabled: true 
+          
+          ### SARIF report generation and upload to GitHub Adavanced Security: Uncomment below to enable
+          #blackducksca_reports_sarif_create: true # Create Black Duck SARIF report and upload it as artifact
+          #blackducksca_reports_sarif_file_path: "/Users/madhusud/Sarif_Reports/BD_Security_Scan_Sarif_Report.json"
+          #blackduck_upload_sarif_report: false  # Upload Black Duck SARIF report in GitHub Advanced Security tab
+          #blackducksca_reports_sarif_severities: 'Critical'
+          #blackducksca_reports_sarif_groupSCAIssues: true
+          #github_token: ${{ secrets.GITHUB_TOKEN }} # Required when blackduck_upload_sarif_report is set as true
+          #include_diagnostics: false
+
+          #### Blackduck Arbitrary product-related CL arguments
+          #blackducksca_search_depth: 3
+          #blackduck_args: '--detect.detector.search.depth=3'
+          #blackduck_args: '--detect.detector.search.depth=3 --detect.diagnostic=true --detect.blackduck.scan.mode=RAPID'
+          #blackduck_config_path: '/Users/madhusud/Github_Repos/Config_Path/blackduck.properties'
+          #blackduck_config_path: 'C:\\Users\\madhusud\\e2e_testing\\repos\\Config_Path\\blackduck.properties'
+
+          ### Async Mode Test
+          #blackduck_waitForScan: false
+
+          ### BD Install Directory
+          #blackduck_install_directory: "/Users/madhusud/Github_Repos/Blackduck_Install_Directory"
+          
+          ###Badges
+          #blackduck_policy_badges_create: true
+          #blackduck_policy_badges_maxCount: 5
+          include_diagnostics: true
+
+          mark_build_status: 'success'
+
       - name: cmdLine
         id: cmdLine
         run: |
