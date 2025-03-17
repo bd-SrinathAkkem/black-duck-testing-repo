@@ -34,10 +34,10 @@ jobs:
           blackducksca_url: ${{ vars.BLACKDUCK_URL }}
           blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
           # blackducksca_scan_full: true
-          # blackduck_scan_failure_severities: 'BLOCKER,CRITICAL'
+          blackduck_scan_failure_severities: 'BLOCKER,CRITICAL'
           # blackducksca_waitForScan: false
           blackducksca_prComment_enabled: true
-          blackducksca_fixpr_enabled: true
+          # blackducksca_fixpr_enabled: true
           # blackduck_fixpr_filter_severities: 'HIGH,CRITICAL'
           # blackducksca_policy_badges_create: true
           # blackduck_install_directory: 'test/path'
@@ -53,3 +53,10 @@ jobs:
           github_token: ${{ secrets.MY_GITHUB_TOKEN }}
           # network_airgap: true
           # include_diagnostics: true
+          mark_build_status: 'success'
+          
+      - name: cmdLine
+        id: cmdLine
+        run: |
+          EXIT_CODE=${{ steps.black-duck-security-scan.outputs.status }}
+          echo "Black Duck Security Scan exit status - $EXIT_CODE"
