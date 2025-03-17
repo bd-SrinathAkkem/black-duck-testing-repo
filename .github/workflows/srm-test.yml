@@ -1,0 +1,44 @@
+name: CI-SRM
+on:
+  push:
+    branches: [ master, develop, stage, release ]
+  pull_request:
+    branches: [ main, master, develop, stage, release ]
+  workflow_dispatch:
+  
+jobs:
+  build:
+    runs-on: [self-hosted]
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: SRM Scan
+        # Use the action defined in this repository
+        uses: blackduck-inc/black-duck-security-scan@v2.0.0
+        with:
+          srm_url: ${{ secrets.SRM_URL }}
+          srm_apikey: ${{ secrets.SRM_API_KEY }}
+          srm_assessment_types: "SCA,SAST"
+          include_diagnostics: true
+          # srm_project_name: "test_action"
+          # srm_project_id: "1"
+          # srm_branch_name: "testmr"
+          # srm_branch_parent: "main"
+          
+          
+          # blackduck_execution_path: "/home/maruf/.synopsys/bridge/tools/synopsys-detect/9.8.0/synopsys-detect-9.8.0.jar"
+          # coverity_execution_path: "/home/maruf/.synopsys/bridge/tools/cov-thin-client/2023.9.2/bin/coverity"
+          # project_directory: "/home/maruf/node-goat"
+
+          # coverity_build_command: "mvn clean install"
+          # coverity_clean_command: "mvn clean"
+          # coverity_config_path: "/home/maruf/SynopsysTestConfig/coverity.yml"
+          # coverity_args: "-c  /home/maruf/SynopsysTestConfig/coverity.yml -o capture.build.clean-command=\"mvn clean\" -- mvn clean install"
+
+          # blackduck_search_depth: "1"
+          # blackduck_args: "/home/maruf/SynopsysTestConfig/application.properties"
+          # blackduck_config_path: "--detect.diagnostic=true"

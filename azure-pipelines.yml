@@ -1,0 +1,34 @@
+trigger:
+- main
+
+pool:
+  vmImage: snps-93spgtachese
+
+variables:
+  - group: Coverity
+  
+steps:
+- task: SynopsysSecurityScan@1.8.0
+  displayName: 'Coverity Scan'
+  inputs:
+    COVERITY_URL: $(COVERITY_URL)
+    COVERITY_USER: $(COVERITY_USER)
+    COVERITY_PASSPHRASE: $(COVERITY_PASSPHRASE)
+    
+    ### Pull Request Comments
+    # COVERITY_PRCOMMENT_ENABLED: true
+    # AZURE_TOKEN: $(System.AccessToken) 
+    
+    ### Mark build status if policy violating issues are found
+    # MARK_BUILD_STATUS: 'SucceededWithIssues'
+    
+  ### Uncomment below to use returned status in subsequent tasks if MARK_BUILD_STATUS is not set or set to FAILED
+  # continueOnError: true
+  
+### Uncomment below configuration to add custom logic based on return status    
+# - task: CmdLine@2
+#   displayName: 'Command Line'
+#   condition: not(eq(variables['SynopsysSecurityScan.status'], '0'))
+#   inputs:
+#     script: |
+#       echo Synopsys Security Scan exit status - $(SynopsysSecurityScan.status)
