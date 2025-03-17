@@ -1,4 +1,4 @@
-name: BD Actions Blackduck Simplification Test
+name: BD Actions Blackduck Test
 on:
   push:
     branches: [ main, master, develop, stage, release ]
@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v3
       - name: Black Duck Full Scan
         #uses: blackduck-inc/black-duck-security-scan@v2.0.0
-        uses: blackduck-inc/black-duck-security-scan@SIGINT-2798
+        uses: blackduck-inc/black-duck-security-scan@fix-SIGINT-2798
         ### Use below configuration to set specific detect environment variables
         env:
           DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
@@ -33,16 +33,16 @@ jobs:
           #bridgecli_download_url: "https://artifactory.tools.duckutil.net/artifactory/clops-local/integrations/bridge/binaries/bridge-cli-bundle/3.3.7/bridge-cli-bundle-3.3.7-macos_arm.zip"
           
           ### FIX PULL REQUEST CREATION: Uncomment below to enable
-          blackducksca_fixpr_enabled: true
-          blackducksca_fixpr_maxCount : 5
-          blackducksca_fixpr_filter_severities: 'Critical, High'
+          # blackducksca_fixpr_enabled: true
+          # blackducksca_fixpr_maxCount : 5
+          # blackducksca_fixpr_filter_severities: 'Critical, High'
           #blackduck_fixpr_filter_severities: 'Critical'
-          blackducksca_fixpr_useUpgradeGuidance: 'SHORT_TERM,LONG_TERM'
+          # blackducksca_fixpr_useUpgradeGuidance: 'SHORT_TERM,LONG_TERM'
           #blackduck_fixpr_useUpgradeGuidance: 'SHORT_TERM'
-          github_token: ${{ secrets.GIT_PAT_TOKEN }} # Required when Fix PRs is enabled
+          # github_token: ${{ secrets.GIT_PAT_TOKEN }} # Required when Fix PRs is enabled
           
           ### PULL REQUEST COMMENTS: Uncomment below to enable
-          blackducksca_prComment_enabled: true 
+          # blackducksca_prComment_enabled: true 
           
           ### SARIF report generation and upload to GitHub Adavanced Security: Uncomment below to enable
           #blackducksca_reports_sarif_create: true # Create Black Duck SARIF report and upload it as artifact
