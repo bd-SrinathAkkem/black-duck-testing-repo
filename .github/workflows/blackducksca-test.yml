@@ -15,7 +15,7 @@ jobs:
       - name: Black Duck Full Scan
         id: black-duck-security-scan
         #uses: blackduck-inc/black-duck-security-scan@v2.0.0
-        uses: blackduck-inc/black-duck-security-scan@fix-SIGINT-2798
+        uses: blackduck-inc/black-duck-security-scan@main
         ### Use below configuration to set specific detect environment variables
         env:
           DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
