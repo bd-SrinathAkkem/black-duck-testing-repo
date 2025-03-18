@@ -1,4 +1,4 @@
-name: BD Actions Blackduck Test
+name: BD SCA Scan
 on:
   push:
     branches: [ main, master, develop, stage, release ]
@@ -23,8 +23,8 @@ jobs:
           #DETECT_BLACKDUCK_RAPID_COMPARE_MODE: BOM_COMPARE
         with:
           ### SCANNING: Required fields
-          blackducksca_url: ${{ vars.BLACKDUCK_URL }}
-          blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
+          blackducksca_url: ${{ secrets.BLACKDUCK_URL }}
+          blackducksca_token: ${{ secrets.BLACKDUCK_API_TOKEN }}
           #blackduck_scan_full: false
           #synopsys_bridge_download_url: https://artifactory.internal.synopsys.com/artifactory/clops-local/clops.sig.synopsys.com/synopsys-bridge/2.8.54/synopsys-bridge-2.8.54-macos_arm.zip
           #synopsys_bridge_download_version: 2.3.0
@@ -34,21 +34,21 @@ jobs:
           #bridgecli_download_url: "https://artifactory.tools.duckutil.net/artifactory/clops-local/integrations/bridge/binaries/bridge-cli-bundle/3.3.7/bridge-cli-bundle-3.3.7-macos_arm.zip"
           
           ### FIX PULL REQUEST CREATION: Uncomment below to enable
-          # blackducksca_fixpr_enabled: true
-          # blackducksca_fixpr_maxCount : 5
-          # blackducksca_fixpr_filter_severities: 'Critical, High'
+          blackducksca_fixpr_enabled: true
+          blackducksca_fixpr_maxCount : 5
+          blackducksca_fixpr_filter_severities: 'Critical, High'
           #blackduck_fixpr_filter_severities: 'Critical'
-          # blackducksca_fixpr_useUpgradeGuidance: 'SHORT_TERM,LONG_TERM'
+          blackducksca_fixpr_useUpgradeGuidance: 'SHORT_TERM,LONG_TERM'
           #blackduck_fixpr_useUpgradeGuidance: 'SHORT_TERM'
-          # github_token: ${{ secrets.GIT_PAT_TOKEN }} # Required when Fix PRs is enabled
+          github_token: ${{ secrets.GIT_PAT_TOKEN }} # Required when Fix PRs is enabled
           
           ### PULL REQUEST COMMENTS: Uncomment below to enable
-          # blackducksca_prComment_enabled: true 
+          blackducksca_prComment_enabled: true 
           
           ### SARIF report generation and upload to GitHub Adavanced Security: Uncomment below to enable
           #blackducksca_reports_sarif_create: true # Create Black Duck SARIF report and upload it as artifact
           #blackducksca_reports_sarif_file_path: "/Users/madhusud/Sarif_Reports/BD_Security_Scan_Sarif_Report.json"
-          # blackduck_upload_sarif_report: false  # Upload Black Duck SARIF report in GitHub Advanced Security tab
+          #blackduck_upload_sarif_report: false  # Upload Black Duck SARIF report in GitHub Advanced Security tab
           #blackducksca_reports_sarif_severities: 'Critical'
           #blackducksca_reports_sarif_groupSCAIssues: true
           #github_token: ${{ secrets.GITHUB_TOKEN }} # Required when blackduck_upload_sarif_report is set as true
@@ -71,6 +71,7 @@ jobs:
           #blackduck_policy_badges_create: true
           #blackduck_policy_badges_maxCount: 5
           include_diagnostics: true
+
           mark_build_status: success
 
       - name: cmdLine
@@ -78,4 +79,3 @@ jobs:
         run: |
           EXIT_CODE=${{ steps.black-duck-security-scan.outputs.status }}
           echo "Black Duck Security Scan exit status - $EXIT_CODE"
-
