@@ -24,7 +24,7 @@ jobs:
         with:
           ### SCANNING: Required fields
           blackducksca_url: ${{ secrets.BLACKDUCK_URL }}
-          blackducksca_token: ${{ secrets.BLACKDUCK_API_TOKEN }}
+          blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
           #blackduck_scan_full: false
           #synopsys_bridge_download_url: https://artifactory.internal.synopsys.com/artifactory/clops-local/clops.sig.synopsys.com/synopsys-bridge/2.8.54/synopsys-bridge-2.8.54-macos_arm.zip
           #synopsys_bridge_download_version: 2.3.0
