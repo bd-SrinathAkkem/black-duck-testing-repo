@@ -70,7 +70,7 @@ jobs:
           #blackduck_policy_badges_create: true
           #blackduck_policy_badges_maxCount: 5
           include_diagnostics: true
-          mark_build_status: failure
+          mark_build_status: success
 
       - name: cmdLine
         id: cmdLine
