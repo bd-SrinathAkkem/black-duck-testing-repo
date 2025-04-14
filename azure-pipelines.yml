@@ -1,5 +1,5 @@
 trigger:
-- master
+- SIGINT-2973
 
 pool: BDSCA-Agent
   
