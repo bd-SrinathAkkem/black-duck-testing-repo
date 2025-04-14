@@ -1,8 +1,7 @@
 trigger:
 - master
 
-pool:
-  vmImage: BDSCA-Agent
+pool: BDSCA-Agent
   
 variables:
   - group: BLACKDUCK_SCA
