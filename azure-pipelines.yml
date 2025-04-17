@@ -1,14 +1,20 @@
 trigger:
-- SIGINT-2973
+- main
 
 pool: BDSCA-Agent
-  
+
 variables:
   - group: BLACKDUCK_SCA
   
 steps:
-- task: BlackDuckSecurityScan@2.0.0
-  displayName: 'Black Duck Scan'
+- task: Checkout@1
+  displayName: 'Checkout specific branch'
+  inputs:
+    repository: self
+    ref: 'refs/heads/SIGINT-2973'
+- task: BlackDuckSecurityScan@2
+  displayName: 'Black Duck Scan on main branch'
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
   env:
     DETECT_PROJECT_NAME: $(Build.Repository.Name)
   inputs:
