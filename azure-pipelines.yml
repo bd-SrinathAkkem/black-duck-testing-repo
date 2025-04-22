@@ -2,7 +2,7 @@ trigger:
   branches:
     include:
       - main
-
+ 
 resources:
   repositories:
     - repository: blackduckScanRepo
@@ -10,25 +10,27 @@ resources:
       name: blackduck-inc/blackduck-security-extension
       ref: refs/heads/SIGINT-2973
       endpoint: bd-SrinathAkkem
-
-pool: BDSCA-Agent
-
+ 
+pool:
+  name: BDSCA-Agent
+ 
 variables:
   - group: BLACKDUCK_SCA
-  
-steps:
-- checkout: self
-  displayName: 'Checkout test repo'
  
-- checkout: blackduckScanRepo
-  displayName: 'Checkout Black Duck Scan Repository'
-- task: BlackDuckSecurityScan@2
-  displayName: 'Black Duck Scan on main branch'
-  env:
-    DETECT_PROJECT_NAME: $(Build.Repository.Name)
-  inputs:
-    # bridgeCliDownloadUrl: 's'
-    scanType: 'blackducksca'
-    blackduckScaUrl: $(BLACKDUCK_URL)
-    blackduckScaToken: $(BLACKDUCK_TOKEN)
-    blackduckScaIncludeDiagnostics: true
+steps:
+  - checkout: self
+    displayName: 'Checkout test repo'
+ 
+  - checkout: blackduckScanRepo
+    displayName: 'Checkout Black Duck Scan Repository'
+  
+  - script: |
+      echo "Running Black Duck Scan"
+      export BRIDGE_BLACKDUCKSCA_TOKEN=$(BLACKDUCK_TOKEN)
+      bridge-cli --stage blackducksca \
+      blackducksca.url=$(BLACKDUCKSCA_URL)
+    env:
+      BLACKDUCKSCA_URL: $(BLACKDUCK_URL)
+      BLACKDUCKSCA_TOKEN: $(BLACKDUCK_TOKEN)
+      DETECT_PROJECT_NAME: $(Build.Repository.Name)
+ 
