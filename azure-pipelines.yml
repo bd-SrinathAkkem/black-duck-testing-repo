@@ -31,7 +31,7 @@ steps:
       cd blackduck-security-extension/blackduck-security-task
       node dist/index.js
     env:
-      BLACKDUCKSCA_URL: $(BLACKDUCK_URL)
-      BLACKDUCKSCA_TOKEN: $(BLACKDUCK_TOKEN)
-      DETECT_PROJECT_NAME: $(Build.Repository.Name)
+      INPUT_BLACKDUCKSCA_URL: $(BLACKDUCK_URL)
+      INPUT_BLACKDUCKSCA_TOKEN: $(BLACKDUCK_TOKEN)
+      INPUT_DETECT_PROJECT_NAME: $(Build.Repository.Name)
  
