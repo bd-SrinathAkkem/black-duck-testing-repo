@@ -27,8 +27,9 @@ steps:
   - script: |
       echo "Running Black Duck Scan"
       export BRIDGE_BLACKDUCKSCA_TOKEN=$(BLACKDUCK_TOKEN)
-      bridge-cli --stage blackducksca \
-      blackducksca.url=$(BLACKDUCKSCA_URL)
+      export BRIDGE_BLACKDUCKSCA_URL=$(BLACKDUCKSCA_URL)
+      cd blackduck-security-extension/blackduck-security-task
+      node dist/index.js
     env:
       BLACKDUCKSCA_URL: $(BLACKDUCK_URL)
       BLACKDUCKSCA_TOKEN: $(BLACKDUCK_TOKEN)
