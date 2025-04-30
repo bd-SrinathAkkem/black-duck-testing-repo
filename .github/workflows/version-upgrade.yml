@@ -1,0 +1,43 @@
+name: Semantic-Version-Upgrade
+ 
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+ 
+jobs:
+  sync_tags:
+    env:
+      ENABLE_MAJOR_TAG: true
+      ENABLE_LATEST_TAG: true
+      
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: [ubuntu-latest, self-hosted]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync Tags
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "bot@example.com"
+          version_tag="${GITHUB_REF#refs/tags/}"
+          [[ "$version_tag" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid tag $version_tag. Use vX.Y.Z"; exit 1; }
+          major_version_tag="v${BASH_REMATCH[1]}"
+          git fetch --tags
+          if [[ "${{ env.enable_major_tag }}" == "true" && ! $(git tag | grep -q "^$major_version_tag$") ]]; then
+            git tag -f "$major_version_tag" "$version_tag"
+            git push origin "$major_version_tag" --force || { echo "::error::Major tag push failed"; exit 1; }
+          fi
+          if [[ "${{ env.enable_latest_tag }}" == "true" ]]; then
+            git tag -f latest "$version_tag"
+            git push origin latest --force || { echo "::error::Latest tag push failed"; exit 1; }
+          fi
+
+      - name: Clean Workspace
+        if: always()
+        run: rm -rf $GITHUB_WORKSPACE/* $GITHUB_WORKSPACE/.*
