@@ -23,9 +23,9 @@ jobs:
           github_token: ${{ secrets.GIT_PAT_TOKEN }}
           include_diagnostics: false
           mark_build_status: success
+          bridgecli_download_url: 'https://artifactory.tools.duckutil.net/artifactory/clops-local/integrations/bridge/binaries/bridge-cli-bundle/3.4.4/bridge-cli-bundle-3.4.4-linux_arm.zip'
       - name: cmdLine
         id: cmdLine
         run: |
           EXIT_CODE=${{ steps.black-duck-security-scan.outputs.status }}
           echo "Black Duck Security Scan exit status - $EXIT_CODE"
-
