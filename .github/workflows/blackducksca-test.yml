@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v3
       - name: Black Duck Full Scan
         id: black-duck-security-scan
-        uses: blackduck-inc/black-duck-security-scan@SIGINT-2971
+        uses: blackduck-inc/black-duck-security-scan@SIGINT-3110
         env:
           DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
         with:
@@ -21,7 +21,7 @@ jobs:
           blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
           blackducksca_scan_failure_severities: 'BLOCKER,CRITICAL'
           github_token: ${{ secrets.GIT_PAT_TOKEN }}
-          include_diagnostics: true
+          include_diagnostics: false
           mark_build_status: success
       - name: cmdLine
         id: cmdLine
