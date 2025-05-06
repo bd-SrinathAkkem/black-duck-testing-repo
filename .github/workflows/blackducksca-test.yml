@@ -28,3 +28,4 @@ jobs:
         run: |
           EXIT_CODE=${{ steps.black-duck-security-scan.outputs.status }}
           echo "Black Duck Security Scan exit status - $EXIT_CODE"
+
