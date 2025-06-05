@@ -1,30 +1,49 @@
-name: BD SCA Scan
+name: BlackduckSCA3
 on:
   push:
-    branches: [ main, master, develop, stage, release ]
-  pull_request:
-    branches: [ main, master, develop, stage, release ]
-  workflow_dispatch:  
+    branches: [ "main" ]
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+  pull-requests: write
+
+  
 jobs:
-  build:
-    runs-on: self-hosted
+
+  lint:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v3
-      - name: Black Duck Full Scan
-        id: black-duck-security-scan
-        uses: blackduck-inc/black-duck-security-scan@SIGINT-3110
-        env:
-          DETECT_PROJECT_NAME: ${{ github.event.repository.name }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Black Duck SCA Scan1
+        uses: blackduck-inc/black-duck-security-scan@v2.1.1
+       
         with:
-          blackducksca_url: ${{ vars.BLACKDUCK_URL }}
-          blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
-          blackducksca_scan_failure_severities: 'BLOCKER,CRITICAL'
-          github_token: ${{ secrets.GIT_PAT_TOKEN }}
-          mark_build_status: success
-          bridgecli_download_url: 'https://artifactory.tools.duckutil.net/artifactory/clops-local/integrations/bridge/binaries/bridge-cli-bundle/3.4.4/bridge-cli-bundle-3.4.4-linux_arm.zip'
-      - name: cmdLine
-        id: cmdLine
-        run: |
-          EXIT_CODE=${{ steps.black-duck-security-scan.outputs.status }}
-          echo "Black Duck Security Scan exit status - $EXIT_CODE"
+           
+            #blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
+            #blackducksca_url: ${{ secrets.BLACKDUCK_URL }}
+            
+            polaris_server_url: 'https://poc.polaris.blackduck.com'
+            polaris_access_token: 'abc'
+            
+            polaris_assessment_types: "SCA,SAST"
+            include_diagnostics: true
+
+  test:
+      runs-on: ubuntu-latest
+      
+      steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Black Duck SCA Scan2
+        uses: blackduck-inc/black-duck-security-scan@v2.1.1
+       
+        with:
+           polaris_server_url: 'https://poc.polaris.blackduck.com'
+           polaris_access_token: 'abc'
+           polaris_assessment_types: "SCA,SAST"
+           include_diagnostics: true
+           
