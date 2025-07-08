@@ -1,576 +1,508 @@
-import Ajv from 'ajv'
-import * as yaml from 'js-yaml'
-import { workflowSchema } from '../../config/workflows/workflow-schema'
+import type { WorkflowEditorHandle } from '../pages/workflow-yml/WorkflowEditor'
+import * as jsyaml from 'js-yaml'
+import { useCallback, useState } from 'react'
+import * as React from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useConfigStore } from '../stores/config-store'
+import { useGithubStore } from '../stores/github-store'
+import { useOrganizationStore } from '../stores/organization-store'
+import { logger } from '../utils/logger'
+import { sessionStorage } from '../utils/session/sessionStorage'
+import { configToYaml } from '../utils/utils'
 
-export interface ValidationError {
-  type: 'syntax-error' | 'missing-field' | 'invalid-value' | 'runner-label' | 'expression' | 'action' | 'glob' | 'configuration' | 'structure' | 'unexpected-key' | 'invalid-character' | 'unknown-input' | 'undefined-property' | 'type-mismatch'
-  message: string
-  line?: number
-  column?: number
-  path?: string
-  severity: 'error' | 'warning'
-}
+/**
+ * Custom React hook to manage step-based navigation and workflow state in the multi-step wizard.
+ *
+ * Handles:
+ * - Step navigation (next, previous, direct step click)
+ * - Workflow YAML content generation and versioning
+ * - State restoration and session persistence
+ * - URL synchronization and browser navigation
+ *
+ * @returns {object} Navigation state and handlers for the workflow wizard
+ */
+export function useStepNavigation() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { organizations } = useOrganizationStore()
+  const {
+    config,
+    additionalYamlData,
+    saveWorkflowVersion,
+    getLatestWorkflowVersion,
+    getVersion,
+  } = useConfigStore()
+  const {
+    getWorkflowContent,
+    setWorkflowContent,
+    canStartNewFlow,
+    getSubmissionStatus,
+    hasPreservedState,
+    getPreservedState,
+    resetToInitialStateWithOrgPreservation,
+  } = useGithubStore()
 
-interface YamlLocation {
-  line: number
-  column: number
-  path: string
-}
+  /**
+   * Initialized from session storage or URL query param.
+   */
+  const [currentStep, setCurrentStep] = useState(() => {
+    // Try to restore step from session storage or URL
+    const savedStep = sessionStorage.getCurrentStep()
+    const urlStep = new URLSearchParams(location.search).get('step')
+    const step = urlStep ? Number.parseInt(urlStep, 10) : savedStep || 1
+    // Clamp step between 1 and 4
+    return Math.max(1, Math.min(4, step))
+  })
 
-export function getYamlErrors(doc: string): ValidationError[] {
-  const errors: ValidationError[] = []
-  let parsedYaml: any = null
-  let yamlMap: Map<string, YamlLocation> = new Map()
+  /**
+   * Ref to the workflow editor component, used for saving content from the editor.
+   */
+  const editorRef = React.useRef<WorkflowEditorHandle>(null)
+  /**
+   * Indicates if a navigation action is currently in progress.
+   */
+  const [isNavigating, setIsNavigating] = useState(false)
+  /**
+   * Tracks the last config version to detect changes and trigger saves.
+   */
+  const [lastConfigVersion, setLastConfigVersion] = useState(getVersion())
 
-  // Step 1: Parse YAML and handle syntax errors
-  try {
-    parsedYaml = yaml.load(doc, { json: true })
-    yamlMap = buildLocationMap(doc, parsedYaml)
-  }
-  catch (error: any) {
-    if (error.mark) {
-      errors.push({
-        type: 'syntax-error',
-        message: `YAML syntax error: ${error.reason}`,
-        line: error.mark.line + 1,
-        column: error.mark.column + 1,
-        severity: 'error',
-      })
-    }
-    else {
-      errors.push({
-        type: 'syntax-error',
-        message: `YAML parsing failed: ${error.message}`,
-        severity: 'error',
-      })
-    }
-    return errors
-  }
+  /**
+   * Generates the workflow YAML content from the current config and any additional YAML data.
+   * Merges additional YAML data if present.
+   * @returns {string} YAML string representing the workflow configuration
+   */
+  const generateWorkflowContentFromConfig = useCallback(() => {
+    try {
+      // Generate base YAML from config
+      const baseYaml = configToYaml(config)
 
-  // Step 2: Validate structure
-  if (!parsedYaml || typeof parsedYaml !== 'object') {
-    errors.push({
-      type: 'structure',
-      message: 'Workflow must be a valid YAML object',
-      line: 1,
-      severity: 'error',
-    })
-    return errors
-  }
+      // If we have additional YAML data, merge it into the base YAML object
+      if (Object.keys(additionalYamlData).length > 0) {
+        const yaml = jsyaml
+        let yamlObj = yaml.load(baseYaml) as Record<string, unknown>
+        yamlObj = { ...yamlObj, ...additionalYamlData }
 
-  // Step 3: Schema validation
-  const ajv = new Ajv({ allErrors: true, verbose: true, strict: false })
-  const validate = ajv.compile(workflowSchema)
-  const isValid = validate(parsedYaml)
-
-  if (!isValid && validate.errors) {
-    for (const error of validate.errors) {
-      const userError = convertAjvError(error, yamlMap, parsedYaml)
-      if (userError) {
-        errors.push(userError)
-      }
-    }
-  }
-
-  // Step 4: Additional specific validations
-  const additionalErrors = performAdditionalValidations(parsedYaml, yamlMap)
-  errors.push(...additionalErrors)
-
-  // Step 5: Remove duplicates and sort by line number
-  const uniqueErrors = removeDuplicateErrors(errors)
-  return uniqueErrors.sort((a, b) => (a.line || 0) - (b.line || 0))
-}
-
-function buildLocationMap(yamlText: string, obj: any): Map<string, YamlLocation> {
-  const map = new Map<string, YamlLocation>()
-  const lines = yamlText.split('\n')
-
-  function findKeyLocation(keyPath: string): YamlLocation {
-    const pathParts = keyPath.split('.').filter(p => p && !p.match(/^\d+$/))
-    const lastKey = pathParts[pathParts.length - 1]
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      const trimmed = line.trim()
-
-      if (trimmed === '' || trimmed.startsWith('#'))
-        continue
-
-      // Look for the key pattern
-      if (trimmed.includes(`${lastKey}:`)) {
-        const keyIndex = line.indexOf(`${lastKey}:`)
-        if (keyIndex !== -1) {
-          return {
-            line: i + 1,
-            column: keyIndex + 1,
-            path: keyPath,
-          }
-        }
-      }
-
-      // Handle array items
-      if (trimmed.startsWith('-') && keyPath.includes('steps')) {
-        const stepMatch = keyPath.match(/steps\.(\d+)/)
-        if (stepMatch) {
-          const stepNumber = Number.parseInt(stepMatch[1])
-          let stepCount = 0
-
-          if (trimmed.startsWith('-')) {
-            if (stepCount === stepNumber) {
-              return {
-                line: i + 1,
-                column: line.indexOf('-') + 1,
-                path: keyPath,
-              }
-            }
-            stepCount++
-          }
-        }
-      }
-    }
-
-    return { line: 1, column: 1, path: keyPath }
-  }
-
-  function traverse(obj: any, currentPath: string = '') {
-    if (obj && typeof obj === 'object') {
-      if (Array.isArray(obj)) {
-        obj.forEach((item, index) => {
-          const arrayPath = `${currentPath}.${index}`
-          map.set(arrayPath, findKeyLocation(arrayPath))
-          traverse(item, arrayPath)
+        // Dump merged object back to YAML
+        return yaml.dump(yamlObj, {
+          lineWidth: -1,
+          noRefs: true,
+          quotingType: '"',
         })
+      }
+
+      return baseYaml
+    }
+    catch (error) {
+      logger.error('useStepNavigation', 'Error generating workflow content from config:', error)
+      // Fallback to base config YAML if merge fails
+      return configToYaml(config)
+    }
+  }, [config, additionalYamlData])
+
+  /**
+   * Saves the workflow content if needed, depending on the current step.
+   * - On step 3: saves content from the editor (if available)
+   * - On step 2: saves generated config-based content
+   * @returns {Promise<boolean>} True if save succeeded or not needed, false if failed
+   */
+  const saveWorkflowIfNeeded = useCallback(async (): Promise<boolean> => {
+    // If on step 3 and editor is present, save from editor
+    if (currentStep === 3 && editorRef.current) {
+      try {
+        const saved = editorRef.current.save()
+        if (!saved) {
+          logger.debug('useStepNavigation', 'Failed to save workflow content from editor')
+          return false
+        }
+
+        // Get the current workflow content from the editor
+        const currentContent = getWorkflowContent()
+        if (currentContent) {
+          // Save this as a navigation-triggered version
+          const versionNumber = saveWorkflowVersion(currentContent, 'navigation')
+          logger.debug('useStepNavigation', 'Saved workflow content from navigation', {
+            versionNumber,
+            contentLength: currentContent.length,
+          })
+        }
+
+        logger.debug('useStepNavigation', 'Workflow content saved successfully from editor')
+        return true
+      }
+      catch (error) {
+        logger.error('useStepNavigation', 'Error saving workflow content:', error)
+        return false
+      }
+    }
+
+    // On step 2, save config-based workflow content
+    if (currentStep === 2) {
+      const workflowContent = generateWorkflowContentFromConfig()
+      const versionNumber = saveWorkflowVersion(workflowContent, 'navigation')
+      setWorkflowContent(workflowContent)
+
+      logger.debug('useStepNavigation', 'Saved config-based workflow content from step 2', {
+        versionNumber,
+        contentLength: workflowContent.length,
+      })
+    }
+
+    // For other steps, no save needed
+    return true
+  }, [currentStep, saveWorkflowVersion, getWorkflowContent, setWorkflowContent, generateWorkflowContentFromConfig])
+
+  /**
+   * Loads the latest workflow content into the editor/store when entering step 3.
+   * If no previous versions exist, generates content from the current config.
+   */
+  const loadLatestWorkflowContent = useCallback(() => {
+    // Only act if entering step 3
+    if (currentStep === 3) {
+      const latestVersion = getLatestWorkflowVersion()
+      if (latestVersion) {
+        logger.debug('useStepNavigation', 'Loading latest workflow version for step 3', {
+          version: latestVersion.version,
+          source: latestVersion.source,
+          contentLength: latestVersion.workflowContent.length,
+        })
+
+        setWorkflowContent(latestVersion.workflowContent)
       }
       else {
-        for (const key in obj) {
-          const fullPath = currentPath ? `${currentPath}.${key}` : key
-          map.set(fullPath, findKeyLocation(fullPath))
-          traverse(obj[key], fullPath)
-        }
-      }
-    }
-  }
+        // No versions exist, generate from current config
+        const workflowContent = generateWorkflowContentFromConfig()
+        const versionNumber = saveWorkflowVersion(workflowContent, 'config')
+        setWorkflowContent(workflowContent)
 
-  traverse(obj)
-  return map
-}
-
-function convertAjvError(error: any, locationMap: Map<string, YamlLocation>, _workflow: any): ValidationError | null {
-  const path = error.instancePath.replace(/^\//, '').replace(/\//g, '.')
-  const location = locationMap.get(path) || { line: 1, column: 1, path }
-
-  // Root level errors
-  if (error.instancePath === '') {
-    if (error.keyword === 'required') {
-      const missingField = error.params.missingProperty
-
-      // Special handling for 'on' field
-      if (missingField === 'on') {
-        return {
-          type: 'missing-field',
-          message: `Missing required field 'on'. Add a trigger like 'on: push' etc.`,
-          line: 1,
-          column: 1,
-          path: 'on',
-          severity: 'error',
-        }
-      }
-
-      return {
-        type: 'missing-field',
-        message: `Missing required field: '${missingField}'`,
-        line: location.line,
-        column: location.column,
-        path: missingField,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'anyOf' && error.schemaPath.includes('anyOf')) {
-      return {
-        type: 'configuration',
-        message: 'Workflow must contain at least one job with a Black Duck security scan step',
-        line: location.line,
-        column: location.column,
-        path: 'jobs',
-        severity: 'error',
-      }
-    }
-  }
-
-  // Trigger configuration errors
-  if (path === 'on' && error.keyword === 'oneOf') {
-    return {
-      type: 'invalid-value',
-      message: `Invalid trigger configuration. The 'on' field accepts: 'on: [push, pull_request]'`,
-      line: location.line,
-      column: location.column,
-      path: 'on',
-      severity: 'error',
-    }
-  }
-
-  // Job-specific errors
-  if (path.includes('jobs.') && !path.includes('steps')) {
-    const jobName = path.split('.')[1]
-
-    if (error.keyword === 'required' && error.params.missingProperty === 'runs-on') {
-      return {
-        type: 'runner-label',
-        message: `Job '${jobName}' requires 'runs-on' field. Example: runs-on: ubuntu-latest`,
-        line: location.line,
-        column: location.column,
-        path: `${path}.runs-on`,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'required' && error.params.missingProperty === 'steps') {
-      return {
-        type: 'structure',
-        message: `Job '${jobName}' requires at least one step.`,
-        line: location.line,
-        column: location.column,
-        path: `${path}.steps`,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'minItems' && path.includes('steps')) {
-      return {
-        type: 'structure',
-        message: `Job '${jobName}' must contain at least one step`,
-        line: location.line,
-        column: location.column,
-        path: `${path}.steps`,
-        severity: 'error',
-      }
-    }
-  }
-
-  // Step-specific errors
-  if (path.includes('steps')) {
-    const pathParts = path.split('.')
-    const jobName = pathParts[1]
-    const stepIndex = pathParts[3]
-
-    if (error.keyword === 'oneOf' && error.schemaPath.includes('oneOf')) {
-      return {
-        type: 'structure',
-        message: `Step ${Number.parseInt(stepIndex) + 1} in job '${jobName}' must have either 'uses' for actions or 'run' for shell commands. But not both together.`,
-        line: location.line,
-        column: location.column,
-        path,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'pattern' && error.propertyName === 'id') {
-      return {
-        type: 'invalid-value',
-        message: `Step ID must start with letter/underscore, followed by letters/numbers/underscores/hyphens. Examples: 'build', 'test_1', 'deploy-prod'`,
-        line: location.line,
-        column: location.column,
-        path,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'pattern' && path.includes('uses')) {
-      return {
-        type: 'action',
-        message: `Invalid action format. Use: 'owner/repo@version'. For example, blackduck-inc/black-duck-security-scan@v2`,
-        line: location.line,
-        column: location.column,
-        path,
-        severity: 'error',
-      }
-    }
-  }
-
-  // Black Duck specific errors
-  if (path.includes('uses') && error.data?.includes('blackduck-inc')) {
-    return {
-      type: 'action',
-      message: `Provide at least one of the product URL (polaris_server_url, coverity_url, blackducksca_url, or srm_url) and access tokens to proceed.`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  if (path.includes('with') && error.keyword === 'anyOf') {
-    return {
-      type: 'configuration',
-      message: `Provide at least one of the product URL (polaris_server_url, coverity_url, blackducksca_url, or srm_url) and access tokens to proceed.`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  // Generic type errors
-  if (error.keyword === 'type') {
-    const expectedType = error.params.type
-    const actualType = typeof error.data
-
-    return {
-      type: 'invalid-value',
-      message: `Expected ${expectedType} but got ${actualType}`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  if (error.keyword === 'minLength') {
-    return {
-      type: 'invalid-value',
-      message: `Value cannot be empty`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  if (error.keyword === 'enum') {
-    return {
-      type: 'invalid-value',
-      message: `Invalid value '${error.data}'. Valid options: ${error.params.allowedValues.join(', ')}`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  return null
-}
-
-function performAdditionalValidations(workflow: any, locationMap: Map<string, YamlLocation>): ValidationError[] {
-  const errors: ValidationError[] = []
-
-  // Available GitHub-hosted runners
-  const availableRunners = [
-    'windows-latest',
-    'ubuntu-latest',
-    'ubuntu-24.04',
-    'ubuntu-24.04-arm',
-    'ubuntu-22.04',
-    'ubuntu-22.04-arm',
-    'ubuntu-20.04',
-    'macos-latest',
-    'macos-latest-xl',
-    'self-hosted',
-    'x64',
-    'arm',
-    'arm64',
-    'linux',
-    'macos',
-    'windows',
-  ]
-
-  // Check for unknown runner labels
-  if (workflow.jobs) {
-    for (const [jobName, job] of Object.entries(workflow.jobs)) {
-      const jobObj = job as any
-      if (jobObj['runs-on']) {
-        const runnerLabel = typeof jobObj['runs-on'] === 'string' ? jobObj['runs-on'] : jobObj['runs-on'][0]
-
-        if (runnerLabel && typeof runnerLabel === 'string') {
-          if (!availableRunners.includes(runnerLabel)) {
-            const location = locationMap.get(`jobs.${jobName}.runs-on`) || { line: 1, column: 1, path: '' }
-            errors.push({
-              type: 'runner-label',
-              message: `Unknown runner "${runnerLabel}". Valid GitHub-hosted runners include: ubuntu-latest, windows-latest, macos-latest, or use self-hosted: self-hosted.`,
-              line: location.line,
-              column: location.column,
-              path: `jobs.${jobName}.runs-on`,
-              severity: 'error',
-            })
-          }
-        }
-      }
-    }
-  }
-
-  // Check for unexpected keys in trigger sections
-  if (workflow.on && typeof workflow.on === 'object') {
-    const validPushKeys = ['branches', 'branches-ignore', 'paths', 'paths-ignore', 'tags', 'tags-ignore']
-    const validPullRequestKeys = ['branches', 'branches-ignore', 'paths', 'paths-ignore', 'types']
-
-    if (workflow.on.push && typeof workflow.on.push === 'object') {
-      for (const key of Object.keys(workflow.on.push)) {
-        if (!validPushKeys.includes(key)) {
-          const location = locationMap.get(`on.push.${key}`) || { line: 1, column: 1, path: '' }
-          errors.push({
-            type: 'unexpected-key',
-            message: `Unknown key "${key}" in push trigger. Valid keys: ${validPushKeys.join(', ')}`,
-            line: location.line,
-            column: location.column,
-            path: `on.push.${key}`,
-            severity: 'error',
-          })
-        }
-      }
-    }
-
-    if (workflow.on.pull_request && typeof workflow.on.pull_request === 'object') {
-      for (const key of Object.keys(workflow.on.pull_request)) {
-        if (!validPullRequestKeys.includes(key)) {
-          const location = locationMap.get(`on.pull_request.${key}`) || { line: 1, column: 1, path: '' }
-          errors.push({
-            type: 'unexpected-key',
-            message: `Unknown key "${key}" in pull_request trigger. Valid keys: ${validPullRequestKeys.join(', ')}`,
-            line: location.line,
-            column: location.column,
-            path: `on.pull_request.${key}`,
-            severity: 'error',
-          })
-        }
-      }
-    }
-  }
-
-  // Check for potentially untrusted expressions
-  function _checkUntrustedExpressions(value: string, path: string): void {
-    const untrustedPatterns = [
-      'github.event.head_commit.message',
-      'github.event.pull_request.title',
-      'github.event.pull_request.body',
-      'github.event.issue.title',
-      'github.event.issue.body',
-      'github.event.comment.body',
-    ]
-
-    for (const pattern of untrustedPatterns) {
-      if (value.includes(pattern)) {
-        const location = locationMap.get(path) || { line: 1, column: 1, path }
-        errors.push({
-          type: 'expression',
-          message: `Potentially unsafe: "${pattern}" should be passed through environment variables to prevent code injection`,
-          line: location.line,
-          column: location.column,
-          path,
-          severity: 'warning',
+        logger.debug('useStepNavigation', 'No workflow versions found, created initial version', {
+          versionNumber,
+          contentLength: workflowContent.length,
         })
       }
     }
-  }
+  }, [currentStep, getLatestWorkflowVersion, setWorkflowContent, generateWorkflowContentFromConfig, saveWorkflowVersion])
 
-  // Check for unknown action inputs
-  const knownActionInputs = {
-    // 'actions/setup-node@v4': ['always-auth', 'architecture', 'cache', 'cache-dependency-path', 'check-latest', 'node-version', 'node-version-file', 'registry-url', 'scope', 'token'],
-    // 'actions/setup-node@v3': ['always-auth', 'architecture', 'cache', 'cache-dependency-path', 'check-latest', 'node-version', 'node-version-file', 'registry-url', 'scope', 'token'],
-    // 'actions/setup-python@v4': ['python-version', 'python-version-file', 'cache', 'architecture', 'check-latest', 'token', 'cache-dependency-path'],
-    // 'actions/setup-python@v3': ['python-version', 'python-version-file', 'cache', 'architecture', 'check-latest', 'token', 'cache-dependency-path'],
-    // 'actions/checkout@v4': ['repository', 'ref', 'token', 'ssh-key', 'ssh-known-hosts', 'ssh-strict', 'persist-credentials', 'path', 'clean', 'fetch-depth', 'lfs', 'submodules', 'set-safe-directory'],
-    // 'actions/checkout@v3': ['repository', 'ref', 'token', 'ssh-key', 'ssh-known-hosts', 'ssh-strict', 'persist-credentials', 'path', 'clean', 'fetch-depth', 'lfs', 'submodules', 'set-safe-directory'],
-    // 'actions/upload-artifact@v4': ['name', 'path', 'if-no-files-found', 'retention-days', 'compression-level', 'overwrite'],
-    // 'actions/upload-artifact@v3': ['name', 'path', 'if-no-files-found', 'retention-days'],
-    // 'actions/download-artifact@v4': ['name', 'path', 'pattern', 'merge-multiple', 'github-token', 'repository', 'run-id'],
-    // 'actions/download-artifact@v3': ['name', 'path', 'github-token', 'repository', 'run-id'],
-  }
-
-  // Validate action inputs and expressions
-  if (workflow.jobs) {
-    for (const [jobName, job] of Object.entries(workflow.jobs)) {
-      const jobObj = job as any
-      if (jobObj.steps && Array.isArray(jobObj.steps)) {
-        jobObj.steps.forEach((step: any, stepIndex: number) => {
-          // Check action inputs
-          if (step.uses && step.with) {
-            // Find matching action (handle different versions)
-            const actionKey = Object.keys(knownActionInputs).find(key =>
-              step.uses.startsWith(key.split('@')[0]),
-            )
-
-            if (actionKey) {
-              const validInputs = knownActionInputs[actionKey]
-              for (const inputKey of Object.keys(step.with)) {
-                if (!validInputs.includes(inputKey)) {
-                  const location = locationMap.get(`jobs.${jobName}.steps.${stepIndex}.with.${inputKey}`) || { line: 1, column: 1, path: '' }
-                  errors.push({
-                    type: 'unknown-input',
-                    message: `Unknown input "${inputKey}" for action "${step.uses}". Valid inputs: ${validInputs.join(', ')}`,
-                    line: location.line,
-                    column: location.column,
-                    path: `jobs.${jobName}.steps.${stepIndex}.with.${inputKey}`,
-                    severity: 'error',
-                  })
-                }
-              }
-            }
-          }
-
-          // Check expressions in all string values
-          function checkStrings(obj: any, basePath: string): void {
-            if (typeof obj === 'string') {
-              // checkUntrustedExpressions(obj, basePath)
-            }
-            else if (obj && typeof obj === 'object') {
-              for (const [key, value] of Object.entries(obj)) {
-                checkStrings(value, `${basePath}.${key}`)
-              }
-            }
-          }
-
-          checkStrings(step, `jobs.${jobName}.steps.${stepIndex}`)
+  /**
+   * Restores preserved state (e.g., organization/repo selection) if available when entering step 1.
+   * Used to support resuming interrupted flows or starting a new flow after submission.
+   */
+  const handlePreservedStateRestoration = useCallback(() => {
+    if (currentStep === 1 && hasPreservedState()) {
+      const preservedState = getPreservedState()
+      if (preservedState) {
+        logger.debug('useStepNavigation', 'Restoring preserved state on step 1', {
+          preservedOrgName: preservedState.stepOne.organization?.name,
+          preservedRepoCount: preservedState.stepOne.selectedRepos.length,
         })
+
+        // Restore the preserved state to initial state with org preservation
+        resetToInitialStateWithOrgPreservation()
       }
     }
-  }
+  }, [currentStep, hasPreservedState, getPreservedState, resetToInitialStateWithOrgPreservation])
 
-  return errors
-}
+  /**
+   * Handles direct navigation to a specific step (e.g., when a step is clicked in the UI).
+   * - Prevents navigation if already navigating or clicking the current step
+   * - Checks for organization data before allowing navigation
+   * - Handles special logic for resuming after submission
+   * - Saves workflow content as needed before navigating
+   * - Loads latest workflow content or restores preserved state when appropriate
+   * @param {number} stepId - The step to navigate to (1-4)
+   */
+  const handleStepClick = useCallback(async (stepId: number) => {
+    if (isNavigating || stepId === currentStep)
+      return
 
-function removeDuplicateErrors(errors: ValidationError[]): ValidationError[] {
-  const seen = new Set<string>()
-  return errors.filter((error) => {
-    const key = `${error.type}-${error.message}-${error.line}-${error.column}-${error.path}`
-    if (seen.has(key)) {
-      return false
+    // Check if we have organizations before allowing navigation
+    if (!organizations || organizations.length === 0) {
+      logger.debug('useStepNavigation', 'Step navigation blocked - no organizations available')
+      return
     }
-    seen.add(key)
-    return true
-  })
-}
 
-// Helper function to format errors for display
-export function formatErrors(errors: ValidationError[]): string {
-  if (errors.length === 0) {
-    return 'No errors found!'
+    // Enhanced handling for submission completion and new flow
+    const isSubmitted = getSubmissionStatus()
+    const canStartNew = canStartNewFlow()
+
+    if (currentStep === 4 && isSubmitted && canStartNew && stepId < 4) {
+      logger.debug('useStepNavigation', 'Allowing navigation from completed submission to start new flow', {
+        from: currentStep,
+        to: stepId,
+        hasPreservedState: hasPreservedState(),
+      })
+
+      // If navigating back from completed submission, handle preserved state
+      if (stepId === 1) {
+        handlePreservedStateRestoration()
+      }
+    }
+
+    setIsNavigating(true)
+
+    try {
+      logger.debug('useStepNavigation', 'Step clicked', { from: currentStep, to: stepId })
+
+      // Save workflow content if coming from step 3
+      const saveSuccess = await saveWorkflowIfNeeded()
+      if (!saveSuccess) {
+        setIsNavigating(false)
+        return
+      }
+
+      // Clamp step to valid range
+      const targetStep = Math.max(1, Math.min(4, stepId))
+      setCurrentStep(targetStep)
+
+      // Load latest content when entering step 3
+      if (targetStep === 3) {
+        // Use setTimeout to ensure state is updated before loading content
+        setTimeout(() => {
+          loadLatestWorkflowContent()
+        }, 0)
+      }
+
+      // Handle preserved state restoration when entering step 1
+      if (targetStep === 1) {
+        setTimeout(() => {
+          handlePreservedStateRestoration()
+        }, 0)
+      }
+    }
+    catch (error) {
+      logger.error('useStepNavigation', 'Error during step navigation:', error)
+    }
+    finally {
+      setIsNavigating(false)
+    }
+  }, [currentStep, isNavigating, organizations, saveWorkflowIfNeeded, loadLatestWorkflowContent, getSubmissionStatus, canStartNewFlow, handlePreservedStateRestoration])
+
+  /**
+   * Handles navigation to the previous step in the wizard.
+   * - Prevents navigation if already navigating or at the first step
+   * - Checks for organization data before allowing navigation
+   * - Saves workflow content as needed before navigating
+   * - Loads latest workflow content or restores preserved state when appropriate
+   */
+  const handlePrevious = useCallback(async () => {
+    if (isNavigating || currentStep <= 1)
+      return
+
+    // Check if we have organizations before allowing navigation
+    if (!organizations || organizations.length === 0) {
+      logger.debug('useStepNavigation', 'Previous navigation blocked - no organizations available')
+      return
+    }
+
+    setIsNavigating(true)
+
+    try {
+      logger.debug('useStepNavigation', 'Moving to previous step', { from: currentStep, to: currentStep - 1 })
+
+      // Save workflow content if coming from step 3
+      const saveSuccess = await saveWorkflowIfNeeded()
+      if (!saveSuccess) {
+        setIsNavigating(false)
+        return
+      }
+
+      const targetStep = Math.max(1, currentStep - 1)
+      setCurrentStep(targetStep)
+
+      // Load latest content when entering step 3
+      if (targetStep === 3) {
+        setTimeout(() => {
+          loadLatestWorkflowContent()
+        }, 0)
+      }
+
+      // Handle preserved state restoration when entering step 1
+      if (targetStep === 1) {
+        setTimeout(() => {
+          handlePreservedStateRestoration()
+        }, 0)
+      }
+    }
+    catch (error) {
+      logger.error('useStepNavigation', 'Error during previous navigation:', error)
+    }
+    finally {
+      setIsNavigating(false)
+    }
+  }, [currentStep, isNavigating, organizations, saveWorkflowIfNeeded, loadLatestWorkflowContent, handlePreservedStateRestoration])
+
+  /**
+   * Handles navigation to the next step in the wizard.
+   * - Prevents navigation if already navigating or at the last step
+   * - Checks for organization data before allowing navigation
+   * - Saves workflow content as needed before navigating
+   * - Loads latest workflow content when appropriate
+   */
+  const handleNext = useCallback(async () => {
+    if (isNavigating || currentStep >= 4)
+      return
+
+    // Check if we have organizations before allowing navigation
+    if (!organizations || organizations.length === 0) {
+      logger.debug('useStepNavigation', 'Next navigation blocked - no organizations available')
+      return
+    }
+
+    setIsNavigating(true)
+
+    try {
+      logger.debug('useStepNavigation', 'Moving to next step', { from: currentStep, to: currentStep + 1 })
+
+      // Save workflow content if coming from step 3
+      const saveSuccess = await saveWorkflowIfNeeded()
+      if (!saveSuccess) {
+        setIsNavigating(false)
+        return
+      }
+
+      const targetStep = Math.min(4, currentStep + 1)
+      setCurrentStep(targetStep)
+
+      // Load latest content when entering step 3
+      if (targetStep === 3) {
+        setTimeout(() => {
+          loadLatestWorkflowContent()
+        }, 0)
+      }
+    }
+    catch (error) {
+      logger.error('useStepNavigation', 'Error during next navigation:', error)
+    }
+    finally {
+      setIsNavigating(false)
+    }
+  }, [currentStep, isNavigating, organizations, saveWorkflowIfNeeded, loadLatestWorkflowContent])
+
+  // Monitor config changes and save workflow versions
+  /**
+   * Effect: Watches for config version changes and saves a new workflow version if needed.
+   * Avoids infinite loops by checking version numbers.
+   */
+  React.useEffect(() => {
+    const currentConfigVersion = getVersion()
+
+    // Only save if config version has changed (avoid infinite loops)
+    if (currentConfigVersion !== lastConfigVersion && currentConfigVersion > 0) {
+      logger.debug('useStepNavigation', 'Config version changed, saving workflow version', {
+        oldVersion: lastConfigVersion,
+        newVersion: currentConfigVersion,
+        currentStep,
+      })
+
+      // Generate workflow content from current config
+      const workflowContent = generateWorkflowContentFromConfig()
+
+      // Save the new workflow version
+      const versionNumber = saveWorkflowVersion(workflowContent, 'config')
+
+      // Update the GitHub store with the latest content
+      setWorkflowContent(workflowContent)
+
+      setLastConfigVersion(currentConfigVersion)
+
+      logger.debug('useStepNavigation', 'Saved workflow version from config change', {
+        versionNumber,
+        contentLength: workflowContent.length,
+      })
+    }
+  }, [getVersion(), lastConfigVersion, saveWorkflowVersion, setWorkflowContent, currentStep])
+
+  // Update URL when step changes
+  /**
+   * Effect: Updates the URL query parameter and session storage when the step changes.
+   * Keeps browser history clean by replacing the URL instead of pushing.
+   */
+  React.useEffect(() => {
+    const searchParams = new URLSearchParams(location.search)
+    const currentUrlStep = searchParams.get('step')
+
+    if (currentUrlStep !== currentStep.toString()) {
+      searchParams.set('step', currentStep.toString())
+      const newUrl = `${location.pathname}?${searchParams.toString()}`
+
+      // Use replace to avoid creating history entries for step changes
+      navigate(newUrl, { replace: true })
+    }
+
+    // Save step to session storage
+    sessionStorage.setCurrentStep(currentStep)
+  }, [currentStep, location.pathname, location.search, navigate])
+
+  // Handle browser back/forward navigation
+  /**
+   * Effect: Handles browser back/forward navigation (popstate) to sync step state.
+   * Loads workflow content or restores preserved state as needed.
+   */
+  React.useEffect(() => {
+    const handlePopState = () => {
+      const urlStep = new URLSearchParams(window.location.search).get('step')
+      if (urlStep) {
+        const step = Math.max(1, Math.min(4, Number.parseInt(urlStep, 10)))
+        if (step !== currentStep) {
+          setCurrentStep(step)
+
+          // Load latest content when entering step 3 via browser navigation
+          if (step === 3) {
+            setTimeout(() => {
+              loadLatestWorkflowContent()
+            }, 0)
+          }
+
+          // Handle preserved state restoration when entering step 1 via browser navigation
+          if (step === 1) {
+            setTimeout(() => {
+              handlePreservedStateRestoration()
+            }, 0)
+          }
+        }
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [currentStep, loadLatestWorkflowContent, handlePreservedStateRestoration])
+
+  // Load latest content when initially entering step 3
+  /**
+   * Effect: Loads latest workflow content when initially entering step 3.
+   */
+  React.useEffect(() => {
+    if (currentStep === 3) {
+      loadLatestWorkflowContent()
+    }
+  }, [currentStep, loadLatestWorkflowContent])
+
+  // NEW: Handle preserved state restoration when initially entering step 1
+  /**
+   * Effect: Handles preserved state restoration when initially entering step 1.
+   */
+  React.useEffect(() => {
+    if (currentStep === 1) {
+      handlePreservedStateRestoration()
+    }
+  }, [currentStep, handlePreservedStateRestoration])
+
+  // Cleanup on unmount
+  /**
+   * Effect: Cleanup on unmount. Resets navigation state.
+   */
+  React.useEffect(() => {
+    return () => {
+      setIsNavigating(false)
+    }
+  }, [])
+
+  return {
+    currentStep,
+    isNavigating,
+    handleStepClick,
+    handlePrevious,
+    handleNext,
+    editorRef,
   }
-
-  return errors.map((error) => {
-    const location = error.line && error.column ? `line:${error.line}, col:${error.column}` : ''
-    const path = error.path ? ` [${error.path}]` : ''
-    return `${location} ${error.message} ${path}`
-  }).join('\n\n')
 }
-
-// Usage example with better error messages:
-const yamlContent = `
-name: CI Pipeline
-on:
-  push:
-    branch: main
-jobs:
-  build:
-    runs-on: linux-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test
-        run: echo 'test'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          invalid_input: 'test'
-`
-
-const errors = getYamlErrors(yamlContent)
-console.log(formatErrors(errors))
