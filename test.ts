@@ -1,773 +1,552 @@
+import type { Platform, WorkflowConfig } from '../../types/config-types'
+import { logger } from "../../utils/logger";
+
 /**
- * @file Workflow Validation Utilities
- * @module utils/workflow-validation
- * @description Utilities for validating workflow files and filenames
+ * WorkflowStep interface for a single step in a GitHub Actions workflow.
+ * @property name - Step name
+ * @property id - Optional step ID
+ * @property uses - Optional action to use
+ * @property with - Optional parameters for the action
+ * @property run - Optional shell command to run
+ * @property if - Optional condition for running the step
+ * @property shell - Optional shell to use
+ * @property continue-on-error - Optional flag to continue on error
+ * @property env - Optional environment variables for the step
  */
-
-import type { Diagnostic } from '@codemirror/lint'
-import Ajv from 'ajv'
-import * as jsyaml from 'js-yaml'
-import { workflowSchema } from '../../config/workflows/workflow-schema'
-import { logger } from '../logger'
-import { getSecurityWarnings } from './workflowSecurity'
-
-export interface FilenameValidationError {
-  type: 'extension' | 'characters' | 'length' | 'reserved' | 'path'
-  message: string
-}
-
-export interface ValidationError {
-  type: 'syntax-error' | 'missing-field' | 'invalid-value' | 'runner-label' | 'expression' | 'action' | 'glob' | 'configuration' | 'structure' | 'unexpected-key' | 'invalid-character' | 'unknown-input' | 'undefined-property' | 'type-mismatch'
-  types?: string[]
-  message: string
-  line?: number
-  column?: number
-  path?: string
-  paths?: string[]
-  severity: 'error' | 'warning'
-}
-
-interface YamlLocation {
-  line: number
-  column: number
-  path: string
-}
-
-// GitHub workflow filename validation constants
-export const GITHUB_WORKFLOW_VALIDATION = {
-  // Valid extensions for GitHub workflow files
-  validExtensions: ['.yml', '.yaml'],
-
-  // Maximum filename length (GitHub has a 255 character limit for file paths)
-  maxLength: 100, // Conservative limit for just the filename
-
-  // Reserved names that should be avoided
-  reservedNames: [
-    'con',
-    'prn',
-    'aux',
-    'nul',
-    'com1',
-    'com2',
-    'com3',
-    'com4',
-    'com5',
-    'com6',
-    'com7',
-    'com8',
-    'com9',
-    'lpt1',
-    'lpt2',
-    'lpt3',
-    'lpt4',
-    'lpt5',
-    'lpt6',
-    'lpt7',
-    'lpt8',
-    'lpt9',
-  ],
-
-  // Invalid characters for GitHub file names
-  // eslint-disable-next-line no-control-regex
-  invalidCharacters: /[<>:"|?*\x00-\x1F\x7F]/,
-
-  // Characters that should be avoided (though not strictly invalid)
-  discouragedCharacters: /[#%&{}\\<>*?/$!'":@+`|=]/,
-
-  // Valid character pattern (letters, numbers, hyphens, underscores, dots)
-  validPattern: /^[\w.-]+$/,
+interface WorkflowStep {
+  'name': string
+  'id'?: string
+  'uses'?: string
+  'with'?: Record<string, unknown>
+  'run'?: Record<string, unknown>
+  'if'?: string
+  'shell'?: string
+  'continue-on-error'?: boolean
+  'env'?: Record<string, string>
 }
 
 /**
- * Get YAML validation errors
+ * PlatformConfig interface for workflow configuration per platform.
+ * @property name - Platform display name
+ * @property steps - Array of workflow steps
+ * @property env - Optional environment variables for the job
+ * @property secrets - Optional list of required secrets
  */
-export function getYamlErrors(doc: string): ValidationError[] {
-  const errors: ValidationError[] = []
-  let parsedYaml: any = null
-  let yamlMap: Map<string, YamlLocation> = new Map()
-
-  // Step 1: Parse YAML and handle syntax errors
-  try {
-    parsedYaml = jsyaml.load(doc, { json: true })
-    yamlMap = buildLocationMap(doc, parsedYaml)
-  }
-  catch (error: any) {
-    if (error.mark) {
-      errors.push({
-        type: 'syntax-error',
-        message: `YAML syntax error: ${error.reason}`,
-        line: error.mark.line + 1,
-        column: error.mark.column + 1,
-        severity: 'error',
-      })
-    }
-    else {
-      errors.push({
-        type: 'syntax-error',
-        message: `YAML parsing failed: ${error.message}`,
-        severity: 'error',
-      })
-    }
-    return errors
-  }
-
-  // Step 2: Validate structure
-  if (!parsedYaml || typeof parsedYaml !== 'object') {
-    errors.push({
-      type: 'structure',
-      message: 'Workflow must be a valid YAML object',
-      line: 1,
-      severity: 'error',
-    })
-    return errors
-  }
-
-  // Step 3: Schema validation
-  const ajv = new Ajv({ allErrors: true, verbose: true, strict: false })
-  const validate = ajv.compile(workflowSchema)
-  const isValid = validate(parsedYaml)
-
-  if (!isValid && validate.errors) {
-    for (const error of validate.errors) {
-      const userError = convertAjvError(error, yamlMap, parsedYaml)
-      if (userError) {
-        errors.push(userError)
-      }
-    }
-  }
-
-  // Step 4: Additional specific validations
-  const additionalErrors = performAdditionalValidations(parsedYaml, yamlMap)
-  errors.push(...additionalErrors)
-
-  // Step 5: Remove duplicates and sort by line number
-  const uniqueErrors = removeDuplicateErrors(errors)
-  return uniqueErrors.sort((a, b) => (a.line || 0) - (b.line || 0))
+interface PlatformConfig {
+  name: string
+  steps: WorkflowStep[]
+  env?: Record<string, string>
+  secrets?: string[]
 }
 
-function buildLocationMap(yamlText: string, obj: any): Map<string, YamlLocation> {
-  const map = new Map<string, YamlLocation>()
-  const lines = yamlText.split('\n')
+const LATEST_VERSIONS = {
+  checkout: '@v4',
+  blackDuckScan: '@v2',
+} as const
 
-  function findKeyLocation(keyPath: string): YamlLocation {
-    const pathParts = keyPath.split('.').filter(p => p && !p.match(/^\d+$/))
-    const lastKey = pathParts[pathParts.length - 1]
+/* eslint-disable no-template-curly-in-string */
+/**
+ * DEFAULT_ENV
+ *
+ * Default environment variable expressions for workflow steps.
+ */
+const DEFAULT_ENV = {
+  BLACKDUCKSCA_URL: '${{ vars.BLACKDUCKSCA_URL }}',
+  COVERITY_URL: '${{ vars.COVERITY_URL }}',
+  GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}',
+  POLARIS_URL: '${{ vars.POLARIS_URL }}',
+} as const
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      const trimmed = line.trim()
+/**
+ * DEFAULT_SECRETS
+ *
+ * Default secret expressions for workflow steps.
+ */
+const DEFAULT_SECRETS = {
+  BLACKDUCKSCA_TOKEN: '${{ secrets.BLACKDUCKSCA_TOKEN }}',
+  COVERITY_PASSPHRASE: '${{ secrets.COVERITY_PASSPHRASE }}',
+  COVERITY_USER: '${{ secrets.COVERITY_USER }}',
+  GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}',
+  POLARIS_ACCESS_TOKEN: '${{ secrets.POLARIS_ACCESS_TOKEN }}',
+} as const
 
-      if (trimmed === '' || trimmed.startsWith('#'))
-        continue
+const DEFAULT_GITHUB_CONFIG = {
+  APPLICATION_NAME: '${{ github.event.repository.name }}',
+  PROJECT_NAME: '${{ github.event.repository.name }}',
+  BRANCH_NAME: '${{ github.event.ref_name }}',
+} as const
+/* eslint-enable no-template-curly-in-string */
 
-      // Look for the key pattern
-      if (trimmed.includes(`${lastKey}:`)) {
-        const keyIndex = line.indexOf(`${lastKey}:`)
-        if (keyIndex !== -1) {
-          return {
-            line: i + 1,
-            column: keyIndex + 1,
-            path: keyPath,
-          }
-        }
-      }
-
-      // Handle array items
-      if (trimmed.startsWith('-') && keyPath.includes('steps')) {
-        const stepMatch = keyPath.match(/steps\.(\d+)/)
-        if (stepMatch) {
-          const stepNumber = Number.parseInt(stepMatch[1])
-          let stepCount = 0
-
-          if (trimmed.startsWith('-')) {
-            if (stepCount === stepNumber) {
-              return {
-                line: i + 1,
-                column: line.indexOf('-') + 1,
-                path: keyPath,
-              }
-            }
-            stepCount++
-          }
-        }
-      }
-    }
-
-    return { line: 1, column: 1, path: keyPath }
-  }
-
-  function traverse(obj: any, currentPath: string = '') {
-    if (obj && typeof obj === 'object') {
-      if (Array.isArray(obj)) {
-        obj.forEach((item, index) => {
-          const arrayPath = `${currentPath}.${index}`
-          map.set(arrayPath, findKeyLocation(arrayPath))
-          traverse(item, arrayPath)
-        })
-      }
-      else {
-        for (const key in obj) {
-          const fullPath = currentPath ? `${currentPath}.${key}` : key
-          map.set(fullPath, findKeyLocation(fullPath))
-          traverse(obj[key], fullPath)
-        }
-      }
-    }
-  }
-
-  traverse(obj)
-  return map
+/**
+ * platformConfigs
+ *
+ * Maps each platform to its workflow configuration (steps, secrets, etc).
+ */
+const platformConfigs: Record<Platform, PlatformConfig> = {
+  coverity: {
+    name: 'Coverity Scan',
+    steps: [
+      {
+        name: 'Checkout Source',
+        uses: `actions/checkout${LATEST_VERSIONS.checkout}`,
+      },
+      {
+        name: 'Coverity Scan',
+        id: 'coverity-scan',
+        uses: `blackduck-inc/black-duck-security-scan${LATEST_VERSIONS.blackDuckScan}`,
+        with: {
+          coverity_url: DEFAULT_ENV.COVERITY_URL,
+          coverity_user: DEFAULT_SECRETS.COVERITY_USER,
+          coverity_passphrase: DEFAULT_SECRETS.COVERITY_PASSPHRASE,
+        },
+      },
+    ],
+    secrets: ['COVERITY_PASSPHRASE', 'GITHUB_TOKEN'],
+  },
+  blackducksca: {
+    name: 'Black Duck Security Scan',
+    steps: [
+      {
+        name: 'Checkout Source',
+        uses: `actions/checkout${LATEST_VERSIONS.checkout}`,
+      },
+      {
+        name: 'Black Duck Security Scan',
+        id: 'black-duck-security-scan',
+        uses: `blackduck-inc/black-duck-security-scan${LATEST_VERSIONS.blackDuckScan}`,
+        with: {
+          blackducksca_url: DEFAULT_ENV.BLACKDUCKSCA_URL,
+          blackducksca_token: DEFAULT_SECRETS.BLACKDUCKSCA_TOKEN,
+        },
+      },
+    ],
+    secrets: ['BLACKDUCKSCA_TOKEN', 'GITHUB_TOKEN'],
+  },
+  polaris: {
+    name: 'Polaris Security Scan',
+    steps: [
+      {
+        name: 'Checkout Source',
+        uses: `actions/checkout${LATEST_VERSIONS.checkout}`,
+      },
+      {
+        name: 'Polaris Security Scan',
+        id: 'polaris-scan',
+        uses: `blackduck-inc/black-duck-security-scan${LATEST_VERSIONS.blackDuckScan}`,
+        with: {
+          polaris_server_url: DEFAULT_ENV.POLARIS_URL,
+          polaris_access_token: DEFAULT_SECRETS.POLARIS_ACCESS_TOKEN,
+        },
+      },
+    ],
+    secrets: ['POLARIS_ACCESS_TOKEN', 'GITHUB_TOKEN'],
+  },
 }
 
-function convertAjvError(error: any, locationMap: Map<string, YamlLocation>, _workflow: any): ValidationError | null {
-  const path = error.instancePath.replace(/^\//, '').replace(/\//g, '.')
-  const location = locationMap.get(path) || { line: 1, column: 1, path }
-
-  // Root level errors
-  if (error.instancePath === '') {
-    if (error.keyword === 'required') {
-      const missingField = error.params.missingProperty
-
-      // Special handling for 'on' field
-      if (missingField === 'on') {
-        return {
-          type: 'missing-field',
-          message: `Missing required field 'on'. Add a trigger like 'on: push' etc.`,
-          line: 1,
-          column: 1,
-          path: 'on',
-          severity: 'error',
-        }
-      }
-
-      return {
-        type: 'missing-field',
-        message: `Missing required field: '${missingField}'`,
-        line: location.line,
-        column: location.column,
-        path: missingField,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'anyOf' && error.schemaPath.includes('anyOf')) {
-      return {
-        type: 'configuration',
-        message: 'Workflow must contain at least one job with a Black Duck security scan step',
-        line: location.line,
-        column: location.column,
-        path: 'jobs',
-        severity: 'error',
-      }
-    }
-  }
-
-  // Trigger configuration errors
-  if (path === 'on' && error.keyword === 'oneOf') {
-    return {
-      type: 'invalid-value',
-      message: `Invalid trigger configuration. The 'on' field accepts: 'on: [push, pull_request]'`,
-      line: location.line,
-      column: location.column,
-      path: 'on',
-      severity: 'error',
-    }
-  }
-
-  // Job-specific errors
-  if (path.includes('jobs.') && !path.includes('steps')) {
-    const jobName = path.split('.')[1]
-
-    if (error.keyword === 'required' && error.params.missingProperty === 'runs-on') {
-      return {
-        type: 'runner-label',
-        message: `Job '${jobName}' requires 'runs-on' field. Example: runs-on: ubuntu-latest`,
-        line: location.line,
-        column: location.column,
-        path: `${path}.runs-on`,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'required' && error.params.missingProperty === 'steps') {
-      return {
-        type: 'structure',
-        message: `Job '${jobName}' requires at least one step.`,
-        line: location.line,
-        column: location.column,
-        path: `${path}.steps`,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'minItems' && path.includes('steps')) {
-      return {
-        type: 'structure',
-        message: `Job '${jobName}' must contain at least one step`,
-        line: location.line,
-        column: location.column,
-        path: `${path}.steps`,
-        severity: 'error',
-      }
-    }
-  }
-
-  // Step-specific errors
-  if (path.includes('steps')) {
-    const pathParts = path.split('.')
-    const jobName = pathParts[1]
-    const stepIndex = pathParts[3]
-
-    if (error.keyword === 'oneOf' && error.schemaPath.includes('oneOf')) {
-      return {
-        type: 'structure',
-        message: `Step ${Number.parseInt(stepIndex) + 1} in job '${jobName}' must have either 'uses' for actions or 'run' for shell commands. But not both together.`,
-        line: location.line,
-        column: location.column,
-        path,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'pattern' && error.propertyName === 'id') {
-      return {
-        type: 'invalid-value',
-        message: `Step ID must start with letter/underscore, followed by letters/numbers/underscores/hyphens. Examples: 'build', 'test_1', 'deploy-prod'`,
-        line: location.line,
-        column: location.column,
-        path,
-        severity: 'error',
-      }
-    }
-
-    if (error.keyword === 'pattern' && path.includes('uses')) {
-      return {
-        type: 'action',
-        message: `Invalid action format. Use: 'owner/repo@version'. For example, blackduck-inc/black-duck-security-scan@v2`,
-        line: location.line,
-        column: location.column,
-        path,
-        severity: 'error',
-      }
-    }
-  }
-
-  // Black Duck specific errors
-  if (path.includes('uses') && error.data?.includes('blackduck-inc')) {
-    return {
-      type: 'action',
-      message: `Provide at least one of the product URL (polaris_server_url, coverity_url, blackducksca_url, or srm_url) and access tokens to proceed.`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  if (path.includes('with') && error.keyword === 'anyOf') {
-    return {
-      type: 'configuration',
-      message: `Provide at least one of the product URL (polaris_server_url, coverity_url, blackducksca_url, or srm_url) and access tokens to proceed.`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  // Generic type errors
-  if (error.keyword === 'type') {
-    const expectedType = error.params.type
-    const actualType = typeof error.data
-
-    return {
-      type: 'invalid-value',
-      message: `Expected ${expectedType} but got ${actualType}`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  if (error.keyword === 'minLength') {
-    return {
-      type: 'invalid-value',
-      message: `Value cannot be empty`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  if (error.keyword === 'enum') {
-    return {
-      type: 'invalid-value',
-      message: `Invalid value '${error.data}'. Valid options: ${error.params.allowedValues.join(', ')}`,
-      line: location.line,
-      column: location.column,
-      path,
-      severity: 'error',
-    }
-  }
-
-  return null
+/**
+ * Checks if a value is valid (not undefined, null, empty string, or empty object).
+ * @param value - The value to check
+ * @returns True if valid, false otherwise
+ */
+function isValidValue(value: unknown): boolean {
+  if (value === undefined || value === null)
+    return false
+  if (typeof value === 'string' && value.trim() === '')
+    return false
+  return !(typeof value === 'object' && Object.keys(value as object).length === 0)
 }
 
-function performAdditionalValidations(workflow: any, locationMap: Map<string, YamlLocation>): ValidationError[] {
-  const errors: ValidationError[] = []
+/**
+ * Generates the workflow trigger configuration (on: ...).
+ * @param config - The workflow config
+ * @returns Trigger configuration object
+ */
+function generateTriggerConfig(config: WorkflowConfig): Record<string, unknown> {
+  const triggers: Record<string, unknown> = {}
 
-  // Only validate critical structural issues and security concerns
-  // Removed runner label validation - users can use any runner
-  // Removed action input validation - users can use any inputs
-  // Removed trigger key validation - users can use any trigger configuration
+  if (config.branches?.push) {
+    triggers.push = {
+      branches: config.branches.push.split(',').map(b => b.trim()),
+    }
+  }
 
-  // Check for potentially untrusted expressions (keep as warnings for security)
-  function checkUntrustedExpressions(value: string, path: string): void {
-    const untrustedPatterns = [
-      'github.event.head_commit.message',
-      'github.event.pull_request.title',
-      'github.event.pull_request.body',
-      'github.event.issue.title',
-      'github.event.issue.body',
-      'github.event.comment.body',
+  if (config.branches?.pullRequest) {
+    triggers.pull_request = {
+      branches: config.branches.pullRequest.split(',').map(b => b.trim()),
+    }
+  }
+
+  triggers.workflow_dispatch = {}
+
+  return triggers
+}
+
+/**
+ * Updates a workflow step with values from the workflow config.
+ * Handles platform-specific and common scan/post-scan options.
+ * @param step - The workflow step to update
+ * @param config - The workflow config
+ * @returns Updated workflow step
+ */
+function updateStepConfig(step: WorkflowStep, config: WorkflowConfig): WorkflowStep {
+  const updatedStep = { ...step }
+  const platform = config.platform
+
+  if (!updatedStep.with || !platform) {
+    return updatedStep
+  }
+
+  // Deep clone the 'with' object to avoid mutations
+  updatedStep.with = { ...updatedStep.with }
+
+  // Platform-specific configurations
+  if (platform === 'coverity') {
+    updatedStep.with.coverity_url = DEFAULT_ENV.COVERITY_URL
+    updatedStep.with.coverity_user = DEFAULT_SECRETS.COVERITY_USER
+    updatedStep.with.coverity_passphrase = DEFAULT_SECRETS.COVERITY_PASSPHRASE
+    if (config.scanOptions?.analysisType) {
+      updatedStep.with.coverity_local = config.scanOptions.analysisType === 'coverity-local'
+    }
+  }
+  else if (platform === 'blackducksca') {
+    updatedStep.with.blackducksca_url = DEFAULT_ENV.BLACKDUCKSCA_URL
+    updatedStep.with.blackducksca_token = DEFAULT_SECRETS.BLACKDUCKSCA_TOKEN
+  }
+  else if (platform === 'polaris') {
+    updatedStep.with.polaris_server_url = DEFAULT_ENV.POLARIS_URL
+    updatedStep.with.polaris_access_token = DEFAULT_SECRETS.POLARIS_ACCESS_TOKEN
+    if (config.scanOptions?.assessmentTypes) {
+      updatedStep.with.polaris_assessment_types = config.scanOptions.assessmentTypes.join(',')
+    }
+  }
+
+  // Common scan options
+  if (config.scanOptions) {
+    if (config.scanOptions.waitForScan !== undefined) {
+      updatedStep.with[`${platform}_waitForScan`] = config.scanOptions.waitForScan
+    }
+
+    if (config.scanOptions.markBuildOnPolicyViolations !== undefined) {
+      updatedStep.with.mark_build_status = config.scanOptions.markBuildOnPolicyViolations ? 'success' : 'failure'
+    }
+
+    if (config.scanOptions.captureDiagnostics !== undefined) {
+      updatedStep.with.include_diagnostics = config.scanOptions.captureDiagnostics
+    }
+  }
+
+  // Post-scan options
+  if (config.postScanOptions) {
+    if (config.postScanOptions.decoratePullRequests !== undefined) {
+      updatedStep.with[`${platform}_prComment_enabled`] = config.postScanOptions.decoratePullRequests
+      if (config.postScanOptions.decoratePullRequests) {
+        updatedStep.with.github_token = DEFAULT_SECRETS.GITHUB_TOKEN
+      }
+    }
+
+    if (platform === 'blackducksca' && config.postScanOptions.fixPullRequests !== undefined) {
+      updatedStep.with[`${platform}_fixpr_enabled`] = config.postScanOptions.fixPullRequests
+    }
+
+    if (platform !== 'coverity') {
+      if (config.postScanOptions.createSarifFile !== undefined) {
+        updatedStep.with[`${platform}_reports_sarif_create`] = config.postScanOptions.createSarifFile
+      }
+
+      if (config.postScanOptions.uploadToGithub !== undefined) {
+        updatedStep.with[`${platform}_upload_sarif_report`] = config.postScanOptions.uploadToGithub
+      }
+    }
+  }
+
+  return updatedStep
+}
+
+function getPolarisScanCommands(runsOn: string): string[] {
+  if (/windows/i.test(runsOn)) {
+    return [
+      'Invoke-WebRequest -Uri ${{ vars.BRIDGECLI_WIN64 }} -OutFile bridge.zip',
+      'Expand-Archive -Path bridge.zip -DestinationPath ${{ runner.temp }} -Force',
+      'Remove-Item -Path bridge.zip -Force',
+      '${{ runner.temp }}/bridge-cli --verbose --stage polaris'
     ]
-
-    for (const pattern of untrustedPatterns) {
-      if (value.includes(pattern)) {
-        const location = locationMap.get(path) || { line: 1, column: 1, path }
-        errors.push({
-          type: 'expression',
-          message: `Potentially unsafe: "${pattern}" should be passed through environment variables to prevent code injection`,
-          line: location.line,
-          column: location.column,
-          path,
-          severity: 'warning',
-        })
-      }
-    }
+  } else {
+    return [
+      'curl -fLsS -o bridge.zip ${{ vars.BRIDGECLI_LINUX64 }} && unzip -qo -d $RUNNER_TEMP bridge.zip && rm -f bridge.zip',
+      '$RUNNER_TEMP/bridge-cli --stage polaris'
+    ]
   }
-
-  // Check expressions in all string values (security warnings only)
-  if (workflow.jobs) {
-    for (const [jobName, job] of Object.entries(workflow.jobs)) {
-      const jobObj = job as any
-      if (jobObj.steps && Array.isArray(jobObj.steps)) {
-        jobObj.steps.forEach((step: any, stepIndex: number) => {
-          function checkStrings(obj: any, basePath: string): void {
-            if (typeof obj === 'string') {
-              checkUntrustedExpressions(obj, basePath)
-            }
-            else if (obj && typeof obj === 'object') {
-              for (const [key, value] of Object.entries(obj)) {
-                checkStrings(value, `${basePath}.${key}`)
-              }
-            }
-          }
-
-          checkStrings(step, `jobs.${jobName}.steps.${stepIndex}`)
-        })
-      }
-    }
-  }
-
-  return errors
 }
 
-function removeDuplicateErrors(errors: ValidationError[]): ValidationError[] {
-  const errorMap = new Map<string, ValidationError>()
+function buildPolarisPRScanCommand(config: WorkflowConfig, runsOn: string): string {
+  const lines = getPolarisScanCommands(runsOn)
 
-  for (const error of errors) {
-    // Create a key based on message and location only
-    const key = `${error.message}-${error.line || 0}-${error.column || 0}`
+  const postScanOptions: string[] = []
 
-    if (errorMap.has(key)) {
-      // Merge with existing error
-      const existingError = errorMap.get(key)!
+  if (config.postScanOptions?.decoratePullRequests) {
+    postScanOptions.push('polaris.prcomment.enabled=true')
+    postScanOptions.push(`github.user.token=${DEFAULT_SECRETS.GITHUB_TOKEN}`)
+  }
+  // postScanOptions.push('polaris.branch.parent.name=${{ github.event.base_ref }}')
+  // postScanOptions.push('github.repository.branch.name=${{ github.ref_name }}')
+  // postScanOptions.push('github.repository.name=${{ github.event.repository.name }}')
+  // postScanOptions.push('github.repository.owner.name=${{ github.repository_owner }}')
+  // postScanOptions.push('github.repository.pull.number=${{ github.event.number }}')
 
-      // Collect all types
-      const allTypes = [existingError.type]
-      if (existingError.types) {
-        allTypes.push(...(existingError.types as ValidationError['type'][]))
-      }
-      if (!allTypes.includes(error.type)) {
-        allTypes.push(error.type)
-      }
+  if (postScanOptions.length > 0) {
+    lines[1] += ` \\\n    ${postScanOptions.join(' \\\n    ')}`
+  }
 
-      // Collect all paths
-      const allPaths = []
-      if (existingError.path) {
-        allPaths.push(existingError.path)
-      }
-      if (existingError.paths) {
-        allPaths.push(...existingError.paths)
-      }
-      if (error.path && !allPaths.includes(error.path)) {
-        allPaths.push(error.path)
-      }
+  return lines.join('\n')
+}
 
-      // Update the existing error
-      if (allTypes.length > 1) {
-        existingError.types = allTypes.slice(1)
-      }
-      if (allPaths.length > 1) {
-        existingError.paths = allPaths.slice(1)
-      }
+/**
+ * Updates a workflow step with values from the workflow config.
+ * Handles platform-specific and common scan/post-scan options.
+ * @param step - The workflow step to update
+ * @param config - The workflow config
+ * @returns Updated workflow step
+ */
+function updateStepConfigCLI(step: WorkflowStep, config: WorkflowConfig): WorkflowStep {
+  const updatedStepCLI = { ...step }
+  updatedStepCLI.run = {
+    name: 'Setup Java JDK',
+    uses: 'actions/setup-java@v3',
+    with: {
+      'java-version': '17',
+      'distribution': 'microsoft',
+      'cache': 'maven',
+    },
+  }
+  const platform = config.platform
 
-      // Keep the highest severity (error > warning)
-      if (error.severity === 'error' && existingError.severity === 'warning') {
-        existingError.severity = 'error'
-      }
+  if (!updatedStepCLI.run || !platform) {
+    return updatedStepCLI
+  }
+
+  // Deep clone the 'run' object to avoid mutations
+  updatedStepCLI.run = { ...updatedStepCLI.run }
+
+  // // Platform-specific configurations
+  // if (platform === 'coverity') {
+  //   updatedStepCLI.run.coverity_url = DEFAULT_ENV.COVERITY_URL
+  //   updatedStepCLI.run.coverity_user = DEFAULT_SECRETS.COVERITY_USER
+  //   updatedStepCLI.run.coverity_passphrase = DEFAULT_SECRETS.COVERITY_PASSPHRASE
+  //   if (config.scanOptions?.analysisType) {
+  //     updatedStepCLI.run.coverity_local = config.scanOptions.analysisType === 'coverity-local'
+  //   }
+  // }
+  // else if (platform === 'blackducksca') {
+  //   updatedStepCLI.run.blackducksca_url = DEFAULT_ENV.BLACKDUCKSCA_URL
+  //   updatedStepCLI.run.blackducksca_token = DEFAULT_SECRETS.BLACKDUCKSCA_TOKEN
+  // }
+  // else if (platform === 'polaris') {
+  //   updatedStepCLI.run = {
+  //     name: 'Polaris PR Scan',
+  //     if: '${{ github.event_name == \'pull_request\' }}',
+  //     run: buildPolarisPRScanCommand(config),
+  //   }
+  // }
+
+  return updatedStepCLI
+}
+
+/**
+ * Generates the full workflow YAML object for the given config for Actions.
+ * Stores the config and workflow content in sessionStorage.
+ * @param config - The workflow config
+ * @returns Workflow YAML object
+ */
+export function generateWorkflowYaml(config: WorkflowConfig): Record<string, unknown> {
+  // Default workflow content even when no platform is selected
+  const defaultWorkflowContent: Record<string, unknown> = {
+    name: 'Workflow',
+    on: generateTriggerConfig(config),
+    jobs: {
+      scan: {
+        'runs-on': 'ubuntu-latest',
+        'steps': [
+          {
+            name: 'Checkout Source',
+            uses: `actions/checkout${LATEST_VERSIONS.checkout}`,
+          },
+        ],
+      },
+    },
+  }
+
+  // If no platform is selected, return default workflow
+  if (!config.platform) {
+    return defaultWorkflowContent
+  }
+
+  const platformConfig = platformConfigs[config.platform]
+
+  const workflowContent: Record<string, unknown> = {
+    name: platformConfig.name,
+    on: generateTriggerConfig(config),
+    jobs: {
+      [config.platform]: {
+        'runs-on': 'ubuntu-latest',
+        'steps': platformConfig.steps.map(step => updateStepConfig(step, config)),
+      },
+    },
+  }
+
+  // Add job-level env if present
+  if (platformConfig.env) {
+    const jobs = workflowContent.jobs as { scan: Record<string, unknown> }
+    jobs.scan = {
+      ...jobs.scan,
+      env: platformConfig.env,
+    }
+  }
+
+  return workflowContent
+}
+
+/**
+ * Generates the full workflow YAML object for the given config for Bridge CLI.
+ * Stores the config and workflow content in sessionStorage.
+ * @param config - The workflow config
+ * @returns Workflow YAML object
+ */
+export function generateWorkflowYamlBridgeCLI(config: WorkflowConfig): Record<string, unknown> {
+  logger.info('Workflow', 'Generating Bridge CLI workflow YAML for config:', config)
+  // Default workflow content even when no platform is selected
+  const defaultWorkflowCLIContent: Record<string, unknown> = {
+    name: 'Workflow',
+    on: generateTriggerConfig(config),
+    jobs: {
+      scan: {
+        'runs-on': 'ubuntu-latest',
+        'steps': [
+          {
+            name: 'Checkout Source',
+            uses: `actions/checkout${LATEST_VERSIONS.checkout}`,
+          },
+        ],
+      },
+    },
+  }
+
+  // If no platform is selected, return default workflow
+  if (!config.platform) {
+    return defaultWorkflowCLIContent
+  }
+
+  const platformCLIConfig = platformConfigs[config.platform]
+
+  const workflowContent: Record<string, unknown> = {
+    name: platformCLIConfig.name,
+    on: generateTriggerConfig(config),
+    jobs: {
+      [config.platform]: {
+        'runs-on': 'ubuntu-latest',
+        'steps': platformCLIConfig.steps.map(step => updateStepConfigCLI(step, config)),
+      },
+    },
+  }
+
+  if (config.platform === 'polaris') {
+    // Add Polaris-specific steps for Bridge CLI
+    workflowContent.jobs[config.platform].steps.push({
+      name: 'Polaris PR Scan',
+      if: '${{ github.event_name == \'pull_request\' }}',
+      run: buildPolarisPRScanCommand(config, workflowContent.jobs[config.platform]['runs-on'] as string),
+    })
+    workflowContent.env = {
+      BRIDGE_POLARIS_SERVERURL: DEFAULT_ENV.POLARIS_URL,
+      BRIDGE_POLARIS_ACCESSTOKEN: DEFAULT_SECRETS.POLARIS_ACCESS_TOKEN,
+      BRIDGE_POLARIS_ASSESSMENT_TYPES: config.scanOptions?.assessmentTypes?.join(',') || '',
+      BRIDGE_POLARIS_APPLICATION_NAME: DEFAULT_GITHUB_CONFIG.APPLICATION_NAME,
+      BRIDGE_POLARIS_PROJECT_NAME: DEFAULT_GITHUB_CONFIG.PROJECT_NAME,
+      BRIDGE_POLARIS_BRANCH_NAME: DEFAULT_GITHUB_CONFIG.BRANCH_NAME,
+    }
+  }
+
+  // Add job-level env if present
+  if (platformCLIConfig.env) {
+    const jobs = workflowContent.jobs as { [config.platform]: Record<string, unknown> }
+    jobs[config.platform] = {
+      ...jobs[config.platform],
+      env: platformCLIConfig.env,
+    }
+  }
+  logger.info('Workflow', 'Generating Bridge CLI workflow YAML for config:', workflowContent)
+  localStorage.setItem('workflowConfig', JSON.stringify(config))
+  localStorage.setItem('workflowContent', JSON.stringify(workflowContent))
+  return workflowContent
+}
+
+/**
+ * Adds a custom step to a platform's workflow configuration.
+ * @param platform - The platform to add the step to
+ * @param step - The custom workflow step
+ * @param position - 'before' to add at the start, 'after' to add at the end (default: 'after')
+ * @returns True if added successfully, false otherwise
+ */
+export function addCustomStep(platform: Platform, step: WorkflowStep, position: 'before' | 'after' = 'after'): boolean {
+  if (!platformConfigs[platform]) {
+    throw new Error(`Platform ${platform} not found`)
+  }
+
+  if (!step.name || (!step.uses && !step.run)) {
+    throw new Error('Custom step must have a name and either uses or run field')
+  }
+
+  try {
+    if (position === 'before') {
+      platformConfigs[platform].steps.unshift(step)
     }
     else {
-      // Add new error
-      errorMap.set(key, { ...error })
+      platformConfigs[platform].steps.push(step)
     }
+    return true
   }
-
-  return Array.from(errorMap.values())
+  catch (error) {
+    console.error('', 'Error adding custom step:', error)
+    return false
+  }
 }
 
 /**
- * Validates GitHub workflow filename
+ * Adds a custom field to the workflow YAML object.
+ * @param config - The workflow config
+ * @param fieldName - The field name to add
+ * @param fieldValue - The value to set for the field
+ * @returns Updated workflow YAML object
  */
-export function validateWorkflowFilename(filename: string): FilenameValidationError[] {
-  const errors: FilenameValidationError[] = []
-
-  if (!filename || filename.trim() === '') {
-    errors.push({
-      type: 'length',
-      message: 'Filename cannot be empty',
-    })
-    return errors
+export function addCustomField(config: WorkflowConfig, fieldName: string, fieldValue: unknown): Record<string, unknown> {
+  if (!isValidValue(fieldValue)) {
+    throw new Error(`Invalid value provided for field: ${fieldName}`)
   }
 
-  const trimmedFilename = filename.trim()
+  const isBridgeCLI = true
+  const workflowContent = isBridgeCLI ? generateWorkflowYamlBridgeCLI(config) : generateWorkflowYaml(config)
 
-  // Check length
-  if (trimmedFilename.length > GITHUB_WORKFLOW_VALIDATION.maxLength) {
-    errors.push({
-      type: 'length',
-      message: `Filename is too long (${trimmedFilename.length} characters). Maximum length is ${GITHUB_WORKFLOW_VALIDATION.maxLength} characters.`,
-    })
+  if (fieldName === 'on') {
+    workflowContent.on = {
+      ...(workflowContent.on as Record<string, unknown>),
+      ...(fieldValue as Record<string, unknown>),
+    }
+  }
+  else {
+    workflowContent[fieldName] = fieldValue
   }
 
-  if (trimmedFilename.length < 1) {
-    errors.push({
-      type: 'length',
-      message: 'Filename must be at least 1 character long',
-    })
-  }
-
-  // Check for path separators (should not contain directory paths)
-  if (trimmedFilename.includes('/') || trimmedFilename.includes('\\')) {
-    errors.push({
-      type: 'path',
-      message: 'Filename cannot contain path separators (/ or \\). Only the filename is allowed.',
-    })
-  }
-
-  // Check extension
-  const hasValidExtension = GITHUB_WORKFLOW_VALIDATION.validExtensions.some(ext =>
-    trimmedFilename.toLowerCase().endsWith(ext),
-  )
-
-  if (!hasValidExtension) {
-    errors.push({
-      type: 'extension',
-      message: `Filename must end with ${GITHUB_WORKFLOW_VALIDATION.validExtensions.join(' or ')} extension for GitHub workflows.`,
-    })
-  }
-
-  // Check for invalid characters
-  if (GITHUB_WORKFLOW_VALIDATION.invalidCharacters.test(trimmedFilename)) {
-    errors.push({
-      type: 'characters',
-      message: 'Filename contains invalid characters. Avoid: < > : " | ? * and control characters.',
-    })
-  }
-
-  // Check for discouraged characters (warning level)
-  if (GITHUB_WORKFLOW_VALIDATION.discouragedCharacters.test(trimmedFilename)) {
-    const discouragedChars = trimmedFilename.match(GITHUB_WORKFLOW_VALIDATION.discouragedCharacters)?.join('') || ''
-    errors.push({
-      type: 'characters',
-      message: `Filename contains discouraged characters (${discouragedChars}). Consider using only letters, numbers, hyphens, underscores, and dots for better compatibility.`,
-    })
-  }
-
-  // Check if filename uses only valid characters
-  if (!GITHUB_WORKFLOW_VALIDATION.validPattern.test(trimmedFilename)) {
-    errors.push({
-      type: 'characters',
-      message: 'Filename should only contain letters, numbers, hyphens (-), underscores (_), and dots (.).',
-    })
-  }
-
-  // Check for reserved names (without extension)
-  const nameWithoutExtension = trimmedFilename.replace(/\.(yml|yaml)$/i, '').toLowerCase()
-  if (GITHUB_WORKFLOW_VALIDATION.reservedNames.includes(nameWithoutExtension)) {
-    errors.push({
-      type: 'reserved',
-      message: `"${nameWithoutExtension}" is a reserved name. Please choose a different filename.`,
-    })
-  }
-
-  // Check for common problematic patterns
-  if (trimmedFilename.startsWith('.')) {
-    errors.push({
-      type: 'characters',
-      message: 'Filename should not start with a dot (.) as it may be treated as a hidden file.',
-    })
-  }
-
-  if (trimmedFilename.endsWith('.')) {
-    errors.push({
-      type: 'characters',
-      message: 'Filename should not end with a dot (.) before the extension.',
-    })
-  }
-
-  if (trimmedFilename.includes('..')) {
-    errors.push({
-      type: 'characters',
-      message: 'Filename should not contain consecutive dots (..).',
-    })
-  }
-
-  // Check for spaces (while valid, they can cause issues)
-  if (trimmedFilename.includes(' ')) {
-    errors.push({
-      type: 'characters',
-      message: 'Filename contains spaces. Consider using hyphens (-) or underscores (_) instead for better compatibility.',
-    })
-  }
-
-  return errors
+  return workflowContent
 }
 
 /**
- * Suggests a corrected filename based on validation errors
+ * Validates a custom field name and value for the workflow YAML.
+ * @param fieldName - The field name
+ * @param fieldValue - The value to validate
+ * @returns True if valid, false otherwise
  */
-export function suggestFilenameCorrection(filename: string): string {
-  if (!filename)
-    return 'workflow.yml'
-
-  let corrected = filename.trim()
-
-  // Remove path separators
-  corrected = corrected.replace(/[/\\]/g, '-')
-
-  // Replace invalid and discouraged characters with hyphens
-  // eslint-disable-next-line no-control-regex
-  corrected = corrected.replace(/[<>:"|?*\x00-\x1F\x7F#%&{}\\/$!'@+`=]/g, '-')
-
-  // Replace spaces with hyphens
-  corrected = corrected.replace(/\s+/g, '-')
-
-  // Remove consecutive dots
-  corrected = corrected.replace(/\.{2,}/g, '.')
-
-  // Remove leading/trailing dots
-  corrected = corrected.replace(/^\.+|\.+$/g, '')
-
-  // Remove consecutive hyphens
-  corrected = corrected.replace(/-{2,}/g, '-')
-
-  // Remove leading/trailing hyphens
-  corrected = corrected.replace(/^-+|-+$/g, '')
-
-  // Ensure it has a valid extension
-  const hasValidExtension = GITHUB_WORKFLOW_VALIDATION.validExtensions.some(ext =>
-    corrected.toLowerCase().endsWith(ext),
-  )
-
-  if (!hasValidExtension) {
-    // Remove any existing extension and add .yml
-    corrected = `${corrected.replace(/\.[^.]*$/, '')}.yml`
+export function validateCustomField(fieldName: string, fieldValue: unknown): boolean {
+  if (!fieldName) {
+    return false
   }
-
-  // Ensure it's not empty
-  if (!corrected || corrected === '.yml' || corrected === '.yaml') {
-    corrected = 'workflow.yml'
-  }
-
-  // Truncate if too long
-  if (corrected.length > GITHUB_WORKFLOW_VALIDATION.maxLength) {
-    const extension = corrected.match(/\.(yml|yaml)$/i)?.[0] || '.yml'
-    const nameLength = GITHUB_WORKFLOW_VALIDATION.maxLength - extension.length
-    corrected = corrected.substring(0, nameLength) + extension
-  }
-
-  // Check for reserved names
-  const nameWithoutExtension = corrected.replace(/\.(yml|yaml)$/i, '').toLowerCase()
-  if (GITHUB_WORKFLOW_VALIDATION.reservedNames.includes(nameWithoutExtension)) {
-    corrected = `${nameWithoutExtension}-workflow.yml`
-  }
-
-  return corrected
-}
-
-/**
- * Create a combined linter for CodeMirror
- */
-export function combinedLinter(ajvValidate: any) {
-  return (view: any) => {
-    const diagnostics: Diagnostic[] = []
-    const doc = view.state.doc.toString()
-
-    try {
-      // Validate YAML syntax
-      const parsed = jsyaml.load(doc)
-      if (!ajvValidate(parsed)) {
-        ajvValidate.errors?.forEach((error: any) => {
-          diagnostics.push({
-            from: 0,
-            to: 0,
-            severity: 'error',
-            message: `${error.instancePath} ${error.message}`,
-          })
-        })
-      }
-    }
-    catch (e: any) {
-      if (e.mark && typeof e.mark.line === 'number') {
-        diagnostics.push({
-          from: view.state.doc.line(e.mark.line + 1).from,
-          to: view.state.doc.line(e.mark.line + 1).to,
-          severity: 'error',
-          message: e.message,
-        })
-      }
-    }
-
-    // Add security warnings as diagnostics
-    const securityWarnings = getSecurityWarnings(doc)
-    securityWarnings.forEach((warning) => {
-      if (warning.line) {
-        try {
-          const line = view.state.doc.line(warning.line)
-          diagnostics.push({
-            from: line.from,
-            to: line.to,
-            severity: warning.severity === 'error' ? 'error' : 'warning',
-            message: warning.message,
-          })
-        }
-        catch (e) {
-          // If line doesn't exist, add a general diagnostic
-          diagnostics.push({
-            from: 0,
-            to: 0,
-            severity: warning.severity === 'error' ? 'error' : 'warning',
-            message: `${warning.field}: ${warning.message}`,
-          })
-          logger.error('WorkflowEditor', 'Error adding security warning diagnostic:', e)
-        }
-      }
-    })
-
-    return diagnostics
-  }
+  return isValidValue(fieldValue)
 }
