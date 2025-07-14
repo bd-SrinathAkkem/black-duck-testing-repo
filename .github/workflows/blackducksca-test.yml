@@ -19,4 +19,3 @@ jobs:
             polaris_access_token: 'abc'
             polaris_assessment_types: "SCA,SAST"
             include_diagnostics: true
-            
