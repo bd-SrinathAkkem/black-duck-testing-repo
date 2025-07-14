@@ -12,6 +12,8 @@ jobs:
   lint:
     runs-on: self-hosted
     steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
       - name: Black Duck SCA Scan1
         uses: blackduck-inc/black-duck-security-scan@v2
         with:
