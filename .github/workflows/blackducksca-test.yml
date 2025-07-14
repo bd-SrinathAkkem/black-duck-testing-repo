@@ -10,7 +10,7 @@ permissions:
   
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Black Duck SCA Scan1
         uses: blackduck-inc/black-duck-security-scan@v2
