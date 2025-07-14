@@ -7,43 +7,16 @@ permissions:
   security-events: write
   issues: write
   pull-requests: write
-
   
 jobs:
-
   lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
       - name: Black Duck SCA Scan1
-        uses: blackduck-inc/black-duck-security-scan@v2.1.1
-       
+        uses: blackduck-inc/black-duck-security-scan@v2
         with:
-           
-            #blackducksca_token: ${{ secrets.BLACKDUCK_TOKEN }}
-            #blackducksca_url: ${{ secrets.BLACKDUCK_URL }}
-            
             polaris_server_url: 'https://poc.polaris.blackduck.com'
             polaris_access_token: 'abc'
-            
             polaris_assessment_types: "SCA,SAST"
             include_diagnostics: true
-
-  test:
-      runs-on: ubuntu-latest
-      
-      steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
-      - name: Black Duck SCA Scan2
-        uses: blackduck-inc/black-duck-security-scan@v2.1.1
-       
-        with:
-           polaris_server_url: 'https://poc.polaris.blackduck.com'
-           polaris_access_token: 'abc'
-           polaris_assessment_types: "SCA,SAST"
-           include_diagnostics: true
-           
+            
