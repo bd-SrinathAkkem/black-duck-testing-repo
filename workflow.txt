@@ -1,95 +1,246 @@
-The prerequisites for installing the Black Duck Security Scan App are found here. Please ensure all requirements in each section are completed.
-GitHub Organization Requirements
-GitHub Actions Configuration
-GitHub Secrets and Variables Setup
-Branch Protection Configuration
-Repository Access Permissions
-GitHub Organization Requirements
+Welcome to the Black Duck Security Scan App user guide
 
-Organization Permissions
+This guide helps you get started with the Black Duck Security Scan App for GitHub. It explains the basic setup process, configuration options, and common operations you can perform while using the application.
 
-You must possess Owner or Admin permissions in your GitHub organization to install the app.
+The Black Duck Security Scan App provides automated security scanning capabilities for your GitHub repositories, helping you identify vulnerabilities, license compliance issues, and security risks in your codebase.
 
-To verify your permissions:
-Navigate to your GitHub organization.
-Go to Settings → Member privileges.
-Confirm that your role is listed as Owner or Admin.
-Orgainzation Setup
+Accessing the Application
+Application Environment
+Repository & Scan Configuration
+Workflow Management
+Troubleshooting and Support
+Glossary
+Accessing the Application
 
-Ensure your organization has:
-At least one repository where security scans will be conducted.
-GitHub Actions enabled at the organization level.
-GitHub Actions Configuration
+You can access the Black Duck Security Scan App through the web portal provided by your organization administrator.
 
-Enable Actions at the Organization Level
+Initial Access
+Navigate to the application portal by following these steps:
 
-To configure GitHub Actions for the Black Duck Security Scan App:
-Navigate to Organization Settings → Actions → General.
-Under Actions permissions, select Allow all actions and reusable workflows.
-In the Allow actions and reusable workflows section, ensure the following options are enabled:
-Allow actions created by GitHub
-Allow actions by Marketplace verified creators
-You must specifically allow Black Duck Security Scan in the Actions permissions.
-Enable Actions at the Repository Level
+Open your web browser.
+Navigate to: https://integrations.blackduck.com/onboard/.
+The login page will appear.
+Use your credentials to complete OAuth Authentication, as outlined here:
 
-For each repository where scans will be executed:
-Navigate to Repository Settings → Actions → General.
-Select Allow all actions and reusable workflows.
-Ensure Enable local and third-party Actions for this repository is checked.
-GitHub Secrets and Variables Setup
+Click "Sign in with GitHub".
+You will be redirected to GitHub's OAuth authorization page.
+Review the requested permissions.
+Click "Authorize" to grant access.
 
-Organization Level Configuration (Recommended)
+Required OAuth Scopes:
 
-To manage secrets across multiple repositories:
-Navigate to Organization Settings → Secrets and variables → Actions.
-Create a Variables tab for non-sensitive configuration values.
-Create a Secrets tab for authentication tokens.
-Repository Level Configuration
+read:org - Read organization membership
+repo - Full repository access
+workflow - Manage GitHub Actions workflows
+admin:org_hook - Manage organization webhooks
+Portal Dashboard
 
-For private repositories (or specific repository needs):
-Navigate to Repository Settings → Secrets and variables → Actions.
-Configure the Variables and Secrets tabs as required for the specific repository.
-Personal Access Token (PAT) Setup
+Upon successful authentication, you'll be redirected to the Black Duck portal dashboard.
 
-To enable enhanced features, create a Personal Access Token:
-Navigate to Profile Settings → Developer settings → Personal access tokens.
-Click Generate new token → Fine-grained personal access token.
-Select the following scopes:
-repo (full repository access)
-API (API access)
-Copy the generated token for use in your secrets configuration.
-Branch Protection Configuration
+Take a moment to review the dashboard components:
+Organization Overview: Shows connected GitHub organizations
+Repository Status: Displays scan status across repositories and Configurations
+Review Workflow
+Summary
+Application Environment
 
-Check Branch Protection Rules
+The Black Duck Security Scan App operates within a structured environment that integrates with your GitHub ecosystem. The topics and steps below will guide you through the app installation process.
 
-Ensure that repositories allow workflow commits to the target branch.
-Navigate to Repository Settings → Branches.
-Review the Branch protection rules for your default branch (main/master).
-Check if any rules restrict commits or require reviews.
-For Repositories with branch protection rules, a pull request will be raised. Please review/approve the pull request and merge to enable the scan workflow and onboarding.
+Navigation Bar
 
-Repository Access Permissions
+Make sure to familiarize yourself with the portal interface:
+Dashboard: Overview of all connected repositories
+Organizations: Manage connected GitHub organizations
+Repositories: Repository-specific configurations
+Workflows: View and manage scan workflows
+Reports: Access scan results and analytics
+GitHub App Installation
 
-Required App Permissions
+The GitHub App installation enables the Black Duck scanner to interact with your repositories and manage workflows.
 
-The Black Duck Security Scan App will request the following permissions during installation:
+App Installation Process:
+Navigate to app installation.
 
-Read Permissions:
-Repository contents and metadata
-Organization repositories list
-Branch information and protection rules
-Pull request data and comments
-Write Permissions:
-Repository contents (to inject workflow files)
-Pull requests (to create and update PRs)
-Actions (to manage GitHub Actions workflows)
-Administration (to handle branch protection if necessary)
-Permission Verification
+From the portal dashboard, click "Install GitHub App"
+Select the target installation scope:
+All repositories (organization-wide)
+Selected repositories (specific repositories)
+Choose your installation scope.
+Complete the installation.
+Review the permission summary.
+Click "Install & Authorize".
+Confirm installation on the GitHub App settings page.
+Architecture Overview
 
-After installation, verify that the app has the appropriate access.
-Navigate to Organization Settings → Third-party Access → GitHub Apps.
-Locate Black Duck Security Scan in the installed apps list.
-Review the granted permissions and repository access.
-Next Steps
+Once you have completed installation, integration with your GitHub ecosystem is complete. The diagram below shows that a complete integration allows you to create scan workflows and produce security reports.
 
-Once all prerequisites are satisfied, proceed with the installation process as outlined in the User Guide.
+[GitHub OAuth] ↔ [Black Duck Portal] ↔ [GitHub App] ↔ [Your Repositories]
+                        ↓
+                   [Scan Workflows] → [Security Reports]
+                
+Repository & Scan Configuration
+
+After installing the GitHub App, configure which repositories to scan and how scans should be performed.
+
+Organization Selection
+
+Follow the steps below to access organization management.
+Navigate to Organizations in the portal.
+View all connected GitHub organizations.
+Select the organization you want to configure.
+Repository Selection
+
+Configure which repositories within the organization should be scanned, using the following steps.
+The portal automatically discovers repositories based on your GitHub App installation. Repository discovery follows these guidelines:
+
+All Repositories: If installed organization-wide.
+Selected Repositories: If installed with limited scope.
+Accessible Repositories: Based on your user permissions.
+In the Repository Selection Interface, select from the options below. The Security Scan App will display repository name and last commit time.
+Selection Options
+Select All: Includes all accessible repositories.
+Custom Selection: Manually choose specific repositories.
+Scan Configuration Options
+
+You may configure your scan triggers, which will affect how Black Duck scans are performed for the selected repositories. By default, scans are triggered when commits are pushed to a main branch, and when a pull request is created.
+
+Table 1. Trigger Options
+Trigger Type	Description	Configuration
+Push to Main	Scan on every push to main branch	Default: Enabled
+Pull Request	Scan on PR creation and updates	Default: Enabled
+Workflow Management
+
+The workflow management system handles the creation, deployment, and execution of GitHub Actions workflows for security scanning.
+
+Workflow review
+
+Before deployment, review the generated workflow file to ensure it meets your requirements.
+
+The Security Scan App will generate a configured pipeline workflow file. The generated workflow structure follows the GitHub pipeline format.
+
+Here is a sample workflow file: (.github/workflows/blackducksca-workflow.yml):
+name: Black Duck Security Scan
+on:
+    push:
+        branches:
+            - main
+            - master
+            - develop
+            - stage
+            - release
+    pull_request:
+        branches:
+            - main
+            - master
+            - develop
+            - stage
+            - release
+    workflow_dispatch: {}
+jobs:
+    blackducksca:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Source
+              uses: actions/checkout@v4
+            - name: Black Duck Security Scan
+              id: black-duck-security-scan
+              uses: blackduck-inc/black-duck-security-scan@v2
+              with:
+                blackducksca_url: ${{ vars.BLACKDUCKSCA_URL }}
+                blackducksca_token: ${{ secrets.BLACKDUCKSCA_TOKEN }}
+                blackducksca_waitForScan: true
+                mark_build_status: failure
+                include_diagnostics: false
+                blackducksca_prComment_enabled: false
+                blackducksca_fixpr_enabled: false
+                blackducksca_reports_sarif_create: false
+                blackducksca_upload_sarif_report: false
+In the workflow review interface, ensure the following components are reviewed:
+Workflow Triggers: When scans will execute.
+Scan Configuration: Detailed scan parameters.
+Secret Requirements: Required credentials and tokens.
+Permissions: GitHub permissions needed.
+You may customize the following options:
+Modify trigger conditions.
+Adjust scan parameters.
+Configure notification settings.
+Add custom steps or integrations.
+Workflow Submission
+
+Submit the reviewed workflow for deployment across selected repositories. Use the submission process below.
+
+For your final review, please complete the following:
+Verify workflow configuration.
+Confirm repository selection.
+Review permission requirements.
+Check secret configuration status.
+Use these steps to submit for deployment:
+Click "Submit Workflows".
+Confirm deployment in the modal dialog.
+Monitor deployment progress.
+Troubleshooting and Support
+
+This section covers common issues and their resolutions, plus support resources.
+
+Authentication Issues
+
+Issue: OAuth Authorization Failed
+Symptoms: Redirect loop, authorization denied
+Solution:
+Clear browser cache and cookies
+Ensure correct GitHub account is logged in
+Check organization membership status
+Retry authorization process
+Issue: Token Expired
+Symptoms: Intermittent authentication failures
+Solution:
+Navigate to portal settings
+Click "Refresh GitHub Token"
+Complete OAuth flow again
+Permission Issues
+
+Issue: Insufficient Repository Access.
+Error: 403 Forbidden when accessing repository.
+Solution:
+Verify repository collaboration status.
+Request elevated permissions from repository owner.
+Check organization membership.
+Issue: GitHub Actions Not Available.
+Error: Actions tab not visible in repository.
+Solution:
+Enable Actions in repository settings.
+Check organization Actions policies.
+Verify repository is not archived.
+Workflow Deployment Issues
+
+Issue: Workflow Creation Failed.
+Symptoms: Deployment stuck in "In Progress" status.
+Troubleshooting Steps:
+Check repository write permissions.
+Verify branch protection rules.
+Confirm Actions are enabled.
+Review deployment logs in portal.
+Issue: Secret Configuration Failed
+Symptoms: Workflow runs but fails with authentication errors
+Solution:
+Verify secret names match exactly
+Check secret values for special characters
+Confirm secret accessibility scope
+Re-configure secrets if necessary
+Glossary
+
+Black Duck: Application security testing platform that identifies open source components and vulnerabilities.
+Branch Protection: GitHub feature that enforces rules on branches, such as requiring reviews before merging.
+GitHub App: Third-party application that integrates with GitHub repositories and provides additional functionality.
+License Compliance: Process of ensuring open source components comply with license requirements.
+OAuth: Open standard for access delegation, allowing secure authorization without sharing credentials.
+Organization: GitHub entity that can own multiple repositories and manage team access.
+Pull Request (PR): Mechanism for proposing changes to a repository and requesting review before merging.
+Repository: Git repository hosted on GitHub containing source code and project files.
+SAST: Static Application Security Testing - analysis of source code for security vulnerabilities.
+SARIF: Static Analysis Results Interchange Format, standardized format for static analysis tool outputs.
+SCA: Software Composition Analysis - identification and analysis of open source components.
+Secret: Encrypted environment variable stored in GitHub for secure access to sensitive information.
+Webhook: HTTP callback that GitHub sends to external services when specific events occur.
+Workflow: Automated process defined in GitHub Actions that runs in response to repository events.
+Vulnerability: Security weakness in code or dependencies that could be exploited by attackers.
