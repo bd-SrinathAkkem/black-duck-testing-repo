@@ -1,0 +1,95 @@
+The prerequisites for installing the Black Duck Security Scan App are found here. Please ensure all requirements in each section are completed.
+GitHub Organization Requirements
+GitHub Actions Configuration
+GitHub Secrets and Variables Setup
+Branch Protection Configuration
+Repository Access Permissions
+GitHub Organization Requirements
+
+Organization Permissions
+
+You must possess Owner or Admin permissions in your GitHub organization to install the app.
+
+To verify your permissions:
+Navigate to your GitHub organization.
+Go to Settings → Member privileges.
+Confirm that your role is listed as Owner or Admin.
+Orgainzation Setup
+
+Ensure your organization has:
+At least one repository where security scans will be conducted.
+GitHub Actions enabled at the organization level.
+GitHub Actions Configuration
+
+Enable Actions at the Organization Level
+
+To configure GitHub Actions for the Black Duck Security Scan App:
+Navigate to Organization Settings → Actions → General.
+Under Actions permissions, select Allow all actions and reusable workflows.
+In the Allow actions and reusable workflows section, ensure the following options are enabled:
+Allow actions created by GitHub
+Allow actions by Marketplace verified creators
+You must specifically allow Black Duck Security Scan in the Actions permissions.
+Enable Actions at the Repository Level
+
+For each repository where scans will be executed:
+Navigate to Repository Settings → Actions → General.
+Select Allow all actions and reusable workflows.
+Ensure Enable local and third-party Actions for this repository is checked.
+GitHub Secrets and Variables Setup
+
+Organization Level Configuration (Recommended)
+
+To manage secrets across multiple repositories:
+Navigate to Organization Settings → Secrets and variables → Actions.
+Create a Variables tab for non-sensitive configuration values.
+Create a Secrets tab for authentication tokens.
+Repository Level Configuration
+
+For private repositories (or specific repository needs):
+Navigate to Repository Settings → Secrets and variables → Actions.
+Configure the Variables and Secrets tabs as required for the specific repository.
+Personal Access Token (PAT) Setup
+
+To enable enhanced features, create a Personal Access Token:
+Navigate to Profile Settings → Developer settings → Personal access tokens.
+Click Generate new token → Fine-grained personal access token.
+Select the following scopes:
+repo (full repository access)
+API (API access)
+Copy the generated token for use in your secrets configuration.
+Branch Protection Configuration
+
+Check Branch Protection Rules
+
+Ensure that repositories allow workflow commits to the target branch.
+Navigate to Repository Settings → Branches.
+Review the Branch protection rules for your default branch (main/master).
+Check if any rules restrict commits or require reviews.
+For Repositories with branch protection rules, a pull request will be raised. Please review/approve the pull request and merge to enable the scan workflow and onboarding.
+
+Repository Access Permissions
+
+Required App Permissions
+
+The Black Duck Security Scan App will request the following permissions during installation:
+
+Read Permissions:
+Repository contents and metadata
+Organization repositories list
+Branch information and protection rules
+Pull request data and comments
+Write Permissions:
+Repository contents (to inject workflow files)
+Pull requests (to create and update PRs)
+Actions (to manage GitHub Actions workflows)
+Administration (to handle branch protection if necessary)
+Permission Verification
+
+After installation, verify that the app has the appropriate access.
+Navigate to Organization Settings → Third-party Access → GitHub Apps.
+Locate Black Duck Security Scan in the installed apps list.
+Review the granted permissions and repository access.
+Next Steps
+
+Once all prerequisites are satisfied, proceed with the installation process as outlined in the User Guide.
